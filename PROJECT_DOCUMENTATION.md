@@ -286,6 +286,14 @@ Future development should proceed in this order:
 - Added shared emergency kill observation from the overlay and accessibility service.
 - Added numeric media-volume setting support for commands such as "set volume to 80".
 
+### 2026-11-20 — Easy APK Distribution
+
+- Added a GitHub Actions workflow that builds and tests the debug APK without an Android Studio installation.
+- Added direct APK artifact download from Actions.
+- Added optional tagged GitHub release publication from the workflow.
+- Published the repository publicly so end users can download releases without repository access.
+- Updated README installation instructions to use a downloaded APK rather than an Android Studio build.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

@@ -2,6 +2,21 @@
 
 For complete architecture, module status, Android/OEM limitations, security boundaries, build instructions, and change history, see [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md).
 
+## Install the Android app
+
+No Android Studio or developer tools are required for users.
+
+1. Open the **[latest GitHub release](https://github.com/vivekoffical08-jpg/Control-X/releases/latest)**.
+2. Download `app-debug.apk`.
+3. On Android, allow installation from the browser/file manager when prompted.
+4. Open Control X and grant Microphone, Overlay, and Accessibility permissions.
+
+The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
+
+## Developer build
+
+Android Studio is only needed to develop or debug the project:
+
 Control X is being built as a native Kotlin Android application with a deliberately constrained execution model.
 
 ## Current foundation
