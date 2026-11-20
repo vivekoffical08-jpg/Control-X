@@ -1,5 +1,7 @@
 # Control X
 
+For complete architecture, module status, Android/OEM limitations, security boundaries, build instructions, and change history, see [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md).
+
 Control X is being built as a native Kotlin Android application with a deliberately constrained execution model.
 
 ## Current foundation
