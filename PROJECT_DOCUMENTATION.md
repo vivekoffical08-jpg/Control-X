@@ -371,6 +371,13 @@ Future development should proceed in this order:
 - Added Android encrypted API configuration and command-history synchronization.
 - Android uses a random device ID and never receives MySQL credentials.
 
+### 2026-11-21 — Professional Dashboard
+
+- Replaced the basic stacked dashboard with a scrollable dark control-center UI.
+- Added dedicated permission, Groq AI, database, launch, and Fast-Path cards.
+- Added visible Groq and backend configuration status.
+- Added masked API-key/token fields and explicit save/clear feedback.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

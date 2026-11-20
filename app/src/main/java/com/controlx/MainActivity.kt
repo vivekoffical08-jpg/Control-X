@@ -21,6 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.controlx.accessibility.ControlAccessibilityService
 import com.controlx.domain.FastPathResult
@@ -76,7 +83,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         try {
             setContent {
-                MaterialTheme {
+                MaterialTheme(
+                    colorScheme = darkColorScheme(
+                        primary = Color(0xFF7DD3FC),
+                        secondary = Color(0xFFA78BFA),
+                        background = Color(0xFF090C12),
+                        surface = Color(0xFF111827),
+                        error = Color(0xFFF87171),
+                    ),
+                ) {
                     Surface(modifier = Modifier.fillMaxSize()) {
                         PermissionDashboard(
                             permissions = permissions,
@@ -214,235 +229,222 @@ private fun PermissionDashboard(
         }
     }.toTypedArray()
 
+    val enabledForOverlay =
+        permissions.microphoneGranted && permissions.overlayGranted
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .background(Color(0xFF090C12))
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Control X", style = MaterialTheme.typography.headlineMedium)
-        Text("Fast-Path System Diagnostics")
+        Text(
+            text = "CONTROL X",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFF8FAFC),
+        )
+        Text(
+            text = "Android agent control center",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFF94A3B8),
+        )
+
         if (!startupCrash.isNullOrBlank()) {
-            Surface(
-                color = Color(0xFF8E1B1B),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 220.dp)
-                    .padding(0.dp),
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF7F1D1D)),
+                shape = RoundedCornerShape(16.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .heightIn(max = 220.dp)
                         .verticalScroll(rememberScrollState())
-                        .padding(12.dp),
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = "CRASH RECOVERY",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = startupCrash,
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    Text("CRASH RECOVERY", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(startupCrash, color = Color(0xFFFEE2E2))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = {
-                                val clipboard =
-                                    context.getSystemService(ClipboardManager::class.java)
-                                clipboard?.setPrimaryClip(
+                        Button(onClick = {
+                            context.getSystemService(ClipboardManager::class.java)
+                                ?.setPrimaryClip(
                                     ClipData.newPlainText("Control X crash log", startupCrash),
                                 )
-                            },
-                        ) {
-                            Text("COPY CRASH LOG")
-                        }
-                        Button(onClick = onClearCrash) {
-                            Text("CLEAR")
-                        }
+                        }) { Text("COPY LOG") }
+                        Button(onClick = onClearCrash) { Text("CLEAR") }
                     }
                 }
             }
         }
 
-        PermissionRow("Microphone", permissions.microphoneGranted) {
-            permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
-        }
-        PermissionRow("Overlay", permissions.overlayGranted) {
-            context.startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:${context.packageName}"),
-                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }
-        PermissionRow("Accessibility", permissions.accessibilityGranted) {
-            context.startActivity(
-                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }
-        PermissionRow("Battery exemption", permissions.batteryOptimizationIgnored) {
-            context.startActivity(
-                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        }
-
-        Text("GROQ AI: $groqStatus")
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = groqKey,
-            onValueChange = { groqKey = it },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            placeholder = { Text("Groq API key") },
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    scope.launch(Dispatchers.IO) {
-                        val saved = onSaveGroqKey(groqKey)
-                        withContext(Dispatchers.Main) {
-                            groqStatus = if (saved && groqKey.isNotBlank()) {
-                                "Configured"
-                            } else {
-                                "Save failed"
-                            }
-                        }
-                    }
-                },
-            ) {
-                Text("SAVE KEY")
+        ControlCard(title = "Device permissions", subtitle = "Required for voice and system control") {
+            PermissionRow("Microphone", permissions.microphoneGranted) {
+                permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
             }
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    scope.launch(Dispatchers.IO) {
-                        val cleared = onClearGroqKey()
-                        withContext(Dispatchers.Main) {
-                            if (cleared) {
-                                groqKey = ""
-                                groqStatus = "Not configured"
-                            }
-                        }
-                    }
-                },
-            ) {
-                Text("CLEAR")
+            PermissionRow("Overlay", permissions.overlayGranted) {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+            PermissionRow("Accessibility", permissions.accessibilityGranted) {
+                context.startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+            PermissionRow("Battery exemption", permissions.batteryOptimizationIgnored) {
+                context.startActivity(
+                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
             }
         }
 
-        Text("COMMAND DATABASE: $apiStatus")
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = apiBaseUrl,
-            onValueChange = { apiBaseUrl = it },
-            singleLine = true,
-            placeholder = { Text("https://api.example.com") },
-        )
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = apiToken,
-            onValueChange = { apiToken = it },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            placeholder = { Text("Control X API token") },
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ControlCard(
+            title = "Groq AI",
+            subtitle = "Encrypted locally on this phone",
+            status = groqStatus,
         ) {
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    scope.launch(Dispatchers.IO) {
-                        val saved = onSaveApiConfiguration(apiBaseUrl, apiToken)
-                        withContext(Dispatchers.Main) {
-                            apiStatus = if (saved) "Configured" else "Invalid settings"
-                        }
-                    }
-                },
-            ) {
-                Text("SAVE DATABASE")
-            }
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    scope.launch(Dispatchers.IO) {
-                        val cleared = onClearApiConfiguration()
-                        withContext(Dispatchers.Main) {
-                            if (cleared) {
-                                apiBaseUrl = ""
-                                apiToken = ""
-                                apiStatus = "Not configured"
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = groqKey,
+                onValueChange = { groqKey = it },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                label = { Text("API key") },
+                placeholder = { Text("Paste Groq API key") },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    enabled = groqKey.isNotBlank(),
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            val saved = onSaveGroqKey(groqKey)
+                            withContext(Dispatchers.Main) {
+                                groqStatus = if (saved) "Configured" else "Save failed"
                             }
                         }
-                    }
-                },
-            ) {
-                Text("CLEAR")
+                    },
+                ) { Text("SAVE KEY") }
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            if (onClearGroqKey()) {
+                                withContext(Dispatchers.Main) {
+                                    groqKey = ""
+                                    groqStatus = "Not configured"
+                                }
+                            }
+                        }
+                    },
+                ) { Text("CLEAR") }
+            }
+        }
+
+        ControlCard(
+            title = "Command database",
+            subtitle = "MySQL through a protected backend",
+            status = apiStatus,
+        ) {
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = apiBaseUrl,
+                onValueChange = { apiBaseUrl = it },
+                singleLine = true,
+                label = { Text("Backend URL") },
+                placeholder = { Text("https://api.example.com") },
+            )
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = apiToken,
+                onValueChange = { apiToken = it },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                label = { Text("API token") },
+                placeholder = { Text("Paste backend token") },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            val saved = onSaveApiConfiguration(apiBaseUrl, apiToken)
+                            withContext(Dispatchers.Main) {
+                                apiStatus = if (saved) "Configured" else "Invalid settings"
+                            }
+                        }
+                    },
+                ) { Text("SAVE DATABASE") }
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            if (onClearApiConfiguration()) {
+                                withContext(Dispatchers.Main) {
+                                    apiBaseUrl = ""
+                                    apiToken = ""
+                                    apiStatus = "Not configured"
+                                }
+                            }
+                        }
+                    },
+                ) { Text("CLEAR") }
             }
         }
 
         Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = permissions.microphoneGranted && permissions.overlayGranted,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            enabled = enabledForOverlay,
             onClick = onLaunchOverlay,
         ) {
-            Text("[ LAUNCH CONTROL X OVERLAY ]")
+            Text("LAUNCH CONTROL X")
         }
 
-        Text("FAST-PATH TEST")
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = diagnosticCommand,
-            onValueChange = { diagnosticCommand = it },
-            singleLine = true,
-            placeholder = { Text("turn on flashlight") },
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    val command = diagnosticCommand
-                    scope.launch(Dispatchers.Default) {
-                        val result = com.controlx.router.FastPathRouter(context)
-                            .route(command)
-                        val message = when (result) {
-                            is FastPathResult.Executed ->
-                                "✓ ${result.message} (${result.latencyMs} ms)"
-                            FastPathResult.Unhandled ->
-                                "No Fast-Path match."
-                            is FastPathResult.Error ->
-                                "✕ ${result.reason}"
+        ControlCard(title = "Fast-Path test", subtitle = "Try a command without voice") {
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = diagnosticCommand,
+                onValueChange = { diagnosticCommand = it },
+                singleLine = true,
+                label = { Text("Command") },
+                placeholder = { Text("turn on flashlight") },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        val command = diagnosticCommand
+                        scope.launch(Dispatchers.Default) {
+                            val result = com.controlx.router.FastPathRouter(context).route(command)
+                            val message = when (result) {
+                                is FastPathResult.Executed ->
+                                    "Executed: ${result.message} (${result.latencyMs} ms)"
+                                FastPathResult.Unhandled ->
+                                    "No Fast-Path match."
+                                is FastPathResult.Error ->
+                                    "Error: ${result.reason}"
+                            }
+                            withContext(Dispatchers.Main) { diagnosticResult = message }
                         }
-                        scope.launch(Dispatchers.Main) {
-                            diagnosticResult = message
-                        }
-                    }
-                },
-            ) {
-                Text("TEST")
+                    },
+                ) { Text("TEST") }
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = { diagnosticCommand = "turn on flashlight" },
+                ) { Text("FLASHLIGHT") }
             }
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = {
-                    diagnosticCommand = "turn on flashlight"
-                },
-            ) {
-                Text("FLASHLIGHT")
-            }
+            Text(diagnosticResult, color = Color(0xFFCBD5E1))
         }
-        Text(diagnosticResult)
     }
 }
 
@@ -455,15 +457,54 @@ private fun PermissionRow(
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "$label: ${if (granted) "READY" else "NOT GRANTED"}",
-            modifier = Modifier.weight(1f),
-        )
-        if (!granted) {
-            Button(onClick = onResolve) {
-                Text("RESOLVE")
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (granted) "Ready" else "Needs setup",
+                color = if (granted) Color(0xFF4ADE80) else Color(0xFFFCA5A5),
+            )
+        }
+        if (!granted) Button(onClick = onResolve) { Text("SET UP") }
+    }
+}
+
+@Composable
+private fun ControlCard(
+    title: String,
+    subtitle: String,
+    status: String? = null,
+    content: @Composable () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111827)),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, fontWeight = FontWeight.Bold)
+                    Text(subtitle, color = Color(0xFF94A3B8))
+                }
+                if (status != null) {
+                    Text(
+                        text = status.uppercase(),
+                        color = if (status == "Configured") Color(0xFF4ADE80)
+                        else Color(0xFFFCA5A5),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
             }
+            content()
         }
     }
 }
