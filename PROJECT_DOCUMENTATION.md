@@ -294,6 +294,10 @@ Future development should proceed in this order:
 - Published the repository publicly so end users can download releases without repository access.
 - Updated README installation instructions to use a downloaded APK rather than an Android Studio build.
 
+### 2026-11-20 — Cloud Build Fix
+
+- Replaced Kotlin callback method-reference calls in `VoiceInputManager` with explicit lambda forwarding to eliminate a recursive type-inference error found by the GitHub Actions compiler.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

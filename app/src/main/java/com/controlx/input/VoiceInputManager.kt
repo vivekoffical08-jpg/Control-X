@@ -25,13 +25,13 @@ class VoiceInputManager(context: Context) {
             override fun onPartialResults(partialResults: Bundle?) {
                 partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
-                    ?.let(onPartial)
+                    ?.let { text -> onPartial(text) }
             }
 
             override fun onResults(results: Bundle?) {
                 results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
-                    ?.let(onFinal)
+                    ?.let { text -> onFinal(text) }
             }
 
             override fun onError(error: Int) = onError(error)
