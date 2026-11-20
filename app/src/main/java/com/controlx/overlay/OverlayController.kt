@@ -21,7 +21,7 @@ class OverlayController(
 ) {
     private val appContext = context.applicationContext
     private val manager = AssistantOverlayManager(appContext, executionGuard)
-    private val voiceInput = VoiceInputManager(appContext)
+    private val voiceInput by lazy { VoiceInputManager(appContext) }
     private val router = FastPathRouter(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listeningForCompletion = false

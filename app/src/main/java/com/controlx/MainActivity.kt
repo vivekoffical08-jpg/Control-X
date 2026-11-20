@@ -45,6 +45,10 @@ class MainActivity : ComponentActivity() {
     private val repository by lazy { PermissionRepository(this) }
     private var permissions by mutableStateOf(repository.snapshot())
     private lateinit var overlayController: OverlayController
+    private var startupCrash by mutableStateOf(
+        (application as? ControlXApplication)
+            ?.let { ControlXApplication.readLastCrash(it) },
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,6 +59,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     PermissionDashboard(
                         permissions = permissions,
+                        startupCrash = startupCrash,
                         onPermissionsChanged = { permissions = repository.snapshot() },
                         onLaunchOverlay = {
                             if (permissions.microphoneGranted &&
@@ -97,6 +102,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun PermissionDashboard(
     permissions: PermissionSnapshot,
+    startupCrash: String?,
     onPermissionsChanged: () -> Unit,
     onLaunchOverlay: () -> Unit,
 ) {
@@ -123,6 +129,12 @@ private fun PermissionDashboard(
     ) {
         Text("Control X", style = MaterialTheme.typography.headlineMedium)
         Text("Fast-Path System Diagnostics")
+        if (!startupCrash.isNullOrBlank()) {
+            Text(
+                text = "Last startup crash:\n$startupCrash",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
 
         PermissionRow("Microphone", permissions.microphoneGranted) {
             permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))

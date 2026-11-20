@@ -8,14 +8,19 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 
 class VoiceInputManager(context: Context) {
-    private val recognizer =
-        SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
+    private val appContext = context.applicationContext
+    private var recognizer: SpeechRecognizer? = null
     private var partialCallback: (String) -> Unit = {}
     private var finalCallback: (String) -> Unit = {}
     private var errorCallback: (Int) -> Unit = {}
+    fun isAvailable(): Boolean =
+        SpeechRecognizer.isRecognitionAvailable(appContext)
 
-    init {
-        recognizer.setRecognitionListener(object : RecognitionListener {
+    private fun ensureRecognizer(): SpeechRecognizer? {
+        if (!isAvailable()) return null
+        recognizer?.let { return it }
+        val created = SpeechRecognizer.createSpeechRecognizer(appContext)
+        created.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = Unit
             override fun onBeginningOfSpeech() = Unit
             override fun onRmsChanged(rmsdB: Float) = Unit
@@ -37,6 +42,8 @@ class VoiceInputManager(context: Context) {
             override fun onError(error: Int) = errorCallback(error)
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
+        recognizer = created
+        return created
     }
 
     fun startListening(
@@ -48,6 +55,12 @@ class VoiceInputManager(context: Context) {
         finalCallback = onFinal
         errorCallback = onError
 
+        val activeRecognizer = ensureRecognizer()
+        if (activeRecognizer == null) {
+            onError(RecognitionListener.ERROR_CLIENT)
+            return
+        }
+
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -56,15 +69,16 @@ class VoiceInputManager(context: Context) {
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         }
-        recognizer.startListening(intent)
+        activeRecognizer.startListening(intent)
     }
 
     fun stopListening() {
-        recognizer.stopListening()
+        recognizer?.stopListening()
     }
 
     fun destroy() {
-        recognizer.destroy()
+        recognizer?.destroy()
+        recognizer = null
         partialCallback = {}
         finalCallback = {}
         errorCallback = {}

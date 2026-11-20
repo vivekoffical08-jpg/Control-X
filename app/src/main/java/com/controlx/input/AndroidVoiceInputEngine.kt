@@ -10,11 +10,15 @@ import android.speech.SpeechRecognizer
 class AndroidVoiceInputEngine(
     context: Context,
 ) : VoiceInputEngine {
-    private val recognizer = SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
+    private val appContext = context.applicationContext
+    private var recognizer: SpeechRecognizer? = null
     private var listener: VoiceInputEngine.Listener? = null
 
-    init {
-        recognizer.setRecognitionListener(object : RecognitionListener {
+    private fun ensureRecognizer(): SpeechRecognizer? {
+        if (!SpeechRecognizer.isRecognitionAvailable(appContext)) return null
+        recognizer?.let { return it }
+        val created = SpeechRecognizer.createSpeechRecognizer(appContext)
+        created.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = Unit
             override fun onBeginningOfSpeech() = Unit
             override fun onRmsChanged(rmsdB: Float) = Unit
@@ -39,11 +43,18 @@ class AndroidVoiceInputEngine(
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
+        recognizer = created
+        return created
     }
 
     override fun start(listener: VoiceInputEngine.Listener) {
         this.listener = listener
-        recognizer.startListening(
+        val activeRecognizer = ensureRecognizer()
+        if (activeRecognizer == null) {
+            listener.onError("Speech recognition is unavailable on this device.")
+            return
+        }
+        activeRecognizer.startListening(
             Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -55,12 +66,13 @@ class AndroidVoiceInputEngine(
     }
 
     override fun stop() {
-        recognizer.cancel()
+        recognizer?.cancel()
         listener = null
     }
 
     fun destroy() {
-        recognizer.destroy()
+        recognizer?.destroy()
+        recognizer = null
         listener = null
     }
 }

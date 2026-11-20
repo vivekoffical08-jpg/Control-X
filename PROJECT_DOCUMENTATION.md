@@ -319,6 +319,12 @@ Future development should proceed in this order:
 
 - Restored `onNewIntent` and launch-intent handling to class scope in `MainActivity`; they must not be declared inside the Compose launch lambda.
 
+### 2026-11-20 — Startup Crash Fix
+
+- Made `SpeechRecognizer` lazy and available only when voice listening starts.
+- Added speech-recognition availability checking and a clear error instead of constructing the recognizer during app startup.
+- Added a shared uncaught-exception capture that is displayed on the next dashboard launch for diagnosis.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.
