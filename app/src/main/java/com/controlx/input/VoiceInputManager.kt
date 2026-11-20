@@ -57,7 +57,7 @@ class VoiceInputManager(context: Context) {
 
         val activeRecognizer = ensureRecognizer()
         if (activeRecognizer == null) {
-            onError(RecognitionListener.ERROR_CLIENT)
+            onError(SpeechRecognizer.ERROR_CLIENT)
             return
         }
 
