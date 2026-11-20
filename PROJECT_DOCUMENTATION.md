@@ -240,6 +240,9 @@ overlay permission, and process retention.
 - ReAct execution is limited to 10 steps and stops on the shared kill switch.
 - Repeated action/screen states are blocked as anti-loop behavior.
 - Every non-FINISH/FAIL ReAct action requires an explicit Allow decision in the overlay.
+- Android voice recognition uses `RecognitionService` with partial/final SpeechRecognizer callbacks.
+- The persistent overlay runs through `OverlayControllerService` with Android foreground-service notification handling.
+- Universal app discovery, contact dialing, YouTube/Spotify media routing, hotspot Settings automation, and safe ad/dialog dismissal are implemented to the extent exposed by Android and OEM APIs.
 - Overlay and typed/voice commands share the kill switch and stop immediately on Volume Down.
 - Diagnostics show startup crashes and permission state for onboarding and troubleshooting.
 

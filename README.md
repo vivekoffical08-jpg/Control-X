@@ -68,6 +68,9 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Minimal overlay controller whose bubble click invokes the kill switch; it refuses to show without explicit overlay permission.
 - Public Android fast-path routing for launchable apps, torch, volume, settings panels, alarms, and timers.
 - Browser internet search through commands such as "search for Android 15 features".
+- Native voice recognition binding and foreground overlay hosting.
+- Contact-name dialing, YouTube/Spotify media search, universal app launch, and hotspot Settings automation.
+- Atomic crash reporting and on-screen diagnostics.
 - Streaming `SpeechRecognizer` callback contract with partial and final results.
 - Explicit confirmation is required for every ReAct automation step before it executes.
 - Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.

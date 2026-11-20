@@ -1,3 +1,5 @@
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:sessionService="com.controlx.assistant.ControlXSessionService"
-    android:supportsAssist="true" />
+    android:recognitionService="com.controlx.input.AndroidVoiceRecognitionService"
+    android:supportsAssist="true"
+    android:supportsLocalInteraction="true" />

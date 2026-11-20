@@ -84,7 +84,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        intent?.let(::handleLaunchIntent)
         try {
             setContent {
                 MaterialTheme(
@@ -107,7 +106,9 @@ class MainActivity : ComponentActivity() {
                                 if (permissions.microphoneGranted &&
                                     permissions.overlayGranted
                                 ) {
-                                    runCatching { getOverlayController().show() }
+                                    runCatching {
+                                        com.controlx.overlay.OverlayControllerService.start(this)
+                                    }
                                 }
                             },
                             onClearCrash = {
@@ -151,7 +152,7 @@ class MainActivity : ComponentActivity() {
         if (intent.action != ACTION_LAUNCH_OVERLAY) return
         val snapshot = PermissionRepository(this).snapshot()
         if (snapshot.microphoneGranted && snapshot.overlayGranted) {
-            getOverlayController().show()
+            com.controlx.overlay.OverlayControllerService.start(this)
         }
     }
 
@@ -161,6 +162,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissions()
+        intent?.let(::handleLaunchIntent)
     }
 
     private fun refreshPermissions() {

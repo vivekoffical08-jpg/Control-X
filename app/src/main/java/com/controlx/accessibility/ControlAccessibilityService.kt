@@ -51,6 +51,13 @@ class ControlAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val root = rootInActiveWindow ?: return
+        if (event?.eventType in setOf(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            )
+        ) {
+            InterruptionReflex.attemptSafeDismiss(root)
+        }
         _snapshot.value = AccessibilitySnapshot(
             packageName = root.packageName?.toString(),
             nodes = collectNodes(root),
