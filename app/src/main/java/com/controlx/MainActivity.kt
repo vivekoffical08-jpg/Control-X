@@ -165,16 +165,16 @@ private fun PermissionDashboard(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var diagnosticCommand by mutableStateOf("")
+    var diagnosticResult by mutableStateOf("Enter a Fast-Path command.")
+    var groqKey by mutableStateOf("")
+    var groqStatus by mutableStateOf("Not configured")
     LaunchedEffect(Unit) {
         onPermissionsChanged()
         val loaded = withContext(Dispatchers.IO) { onLoadGroqKey() }
         groqKey = loaded
         groqStatus = if (loaded.isBlank()) "Not configured" else "Configured"
     }
-    var diagnosticCommand by mutableStateOf("")
-    var diagnosticResult by mutableStateOf("Enter a Fast-Path command.")
-    var groqKey by mutableStateOf("")
-    var groqStatus by mutableStateOf("Not configured")
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { onPermissionsChanged() },
