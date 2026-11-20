@@ -26,7 +26,7 @@ class ReActEngine(
 
     fun screenFingerprint(snapshot: ScreenSnapshot): String =
         snapshot.nodes.joinToString("|") { node ->
-            "${node.id}:${node.text}:${node.contentDescription}:${node.bounds.flattenToString()}"
+            "${node.id}:${node.text}:${node.contentDescription}:${node.bounds.left},${node.bounds.top},${node.bounds.right},${node.bounds.bottom}"
         }
 
     fun maxStepsReached(history: List<ActionRecord>): Boolean = history.size >= 10

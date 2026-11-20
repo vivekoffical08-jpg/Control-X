@@ -272,6 +272,20 @@ Future development should proceed in this order:
 
 ## 15. Change Log
 
+### 2026-11-20 — Vertical Slice Integration
+
+- Added real-time permission diagnostics for microphone, overlay, accessibility, and battery optimization.
+- Added one-tap settings entry points and a permission-gated overlay launch button.
+- Added a Compose text Fast-Path diagnostic panel.
+- Added a bottom 45% assistant overlay with top 55% dimmed touch-passthrough scrim.
+- Added overlay states for idle, listening, parsing, executing, and dismiss.
+- Added live partial/final voice transcription callbacks into `FastPathRouter`.
+- Added success, unhandled, and error settlement feedback.
+- Added 800 ms success feedback before overlay collapse.
+- Added typed text command input and close/abort controls.
+- Added shared emergency kill observation from the overlay and accessibility service.
+- Added numeric media-volume setting support for commands such as "set volume to 80".
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

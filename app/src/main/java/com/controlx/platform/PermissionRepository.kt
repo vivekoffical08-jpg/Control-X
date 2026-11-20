@@ -6,6 +6,10 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import android.os.PowerManager
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.view.accessibility.AccessibilityManager
+import com.controlx.accessibility.ControlAccessibilityService
 
 class PermissionRepository(
     private val context: Context,
@@ -27,6 +31,26 @@ class PermissionRepository(
             notificationsGranted = notificationsGranted,
             overlayGranted = Settings.canDrawOverlays(context),
             writeSettingsGranted = Settings.System.canWrite(context),
+            accessibilityGranted = isAccessibilityServiceEnabled(),
+            batteryOptimizationIgnored = isBatteryOptimizationIgnored(),
         )
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val accessibilityManager =
+            context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledServices = accessibilityManager.getEnabledAccessibilityServiceList(
+            AccessibilityServiceInfo.FEEDBACK_GENERIC,
+        )
+        val expectedName = "${context.packageName}/${ControlAccessibilityService::class.java.name}"
+        return enabledServices.any { enabled ->
+            enabled.id == expectedName ||
+                enabled.resolveInfo.serviceInfo.name == ControlAccessibilityService::class.java.name
+        }
+    }
+
+    private fun isBatteryOptimizationIgnored(): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isIgnoringBatteryOptimizations(context.packageName)
     }
 }

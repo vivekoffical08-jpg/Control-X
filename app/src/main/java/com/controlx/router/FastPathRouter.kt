@@ -126,7 +126,21 @@ class FastPathRouter(private val context: Context) {
         } else {
             VolumeDirection.UP
         }
-        adjustVolume(stream, direction)
+        val percentMatch = Regex("""(?i)(?:set|to)\s*(\d{1,3})(?:\s*%|\s*percent)?""")
+            .find(normalized)
+        val percent = percentMatch?.groupValues?.get(1)?.toIntOrNull()
+        if (percent != null) {
+            val bounded = percent.coerceIn(0, 100)
+            val max = audioManager.getStreamMaxVolume(stream)
+            val index = (bounded * max / 100.0).toInt()
+            audioManager.setStreamVolume(
+                stream,
+                index,
+                AudioManager.FLAG_SHOW_UI,
+            )
+        } else {
+            adjustVolume(stream, direction)
+        }
         return FastPathResult.Executed("Volume adjusted.", 0)
     }
 
