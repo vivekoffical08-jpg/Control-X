@@ -351,6 +351,13 @@ Future development should proceed in this order:
 - Added CAMERA runtime onboarding alongside microphone permissions.
 - Agent/LLM execution remains separate and is not invoked by Fast-Path commands.
 
+### 2026-11-21 — Universal Automation Foundation
+
+- Added dynamic accessibility screen capture and ephemeral node resolution through `ScreenNodeParser`.
+- Added `AgentNodeExecutor` for grounded click, text, scroll, coordinate, and system-action execution.
+- Added `UniversalTaskRunner` for app launch, bounded ReAct execution, UI settle, loop detection, and explicit capability failures.
+- Groq integration remains disabled until an API key is configured by the user.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

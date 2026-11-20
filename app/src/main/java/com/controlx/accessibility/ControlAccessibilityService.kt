@@ -17,6 +17,8 @@ class ControlAccessibilityService : AccessibilityService() {
 
         fun isActive(): Boolean = activeInstance != null
 
+        fun activeInstance(): ControlAccessibilityService? = activeInstance
+
         fun performGlobalAction(action: Int): Boolean =
             activeInstance?.performGlobalAction(action) == true
 
@@ -37,6 +39,15 @@ class ControlAccessibilityService : AccessibilityService() {
 
     private val _snapshot = MutableStateFlow<AccessibilitySnapshot?>(null)
     val snapshot: StateFlow<AccessibilitySnapshot?> = _snapshot.asStateFlow()
+    private val nodeParser = ScreenNodeParser()
+
+    fun captureScreenSnapshot(): com.controlx.domain.ScreenSnapshot =
+        nodeParser.captureAndSanitize(rootInActiveWindow)
+
+    fun resolveNode(nodeId: String): AccessibilityNodeInfo? =
+        nodeParser.resolveNode(nodeId)
+
+    fun clearScreenNodes() = nodeParser.clear()
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val root = rootInActiveWindow ?: return
