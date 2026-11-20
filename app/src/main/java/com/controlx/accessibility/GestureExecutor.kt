@@ -8,7 +8,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.controlx.domain.ScrollDirection
 
@@ -192,23 +191,21 @@ class GestureExecutor(
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         return when (action) {
             ImeAction.ENTER, ImeAction.SEARCH, ImeAction.SEND -> {
-                val down = service.dispatchKeyEvent(
-                    KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER),
+                val bundle = Bundle().apply {
+                    putCharSequence(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        node.text?.toString().orEmpty() + "\n",
+                    )
+                }
+                node.performAction(
+                    AccessibilityNodeInfo.ACTION_SET_TEXT,
+                    bundle,
                 )
-                val up = service.dispatchKeyEvent(
-                    KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER),
-                )
-                down && up
             }
-            ImeAction.NEXT -> {
-                val down = service.dispatchKeyEvent(
-                    KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB),
+            ImeAction.NEXT ->
+                node.performAction(
+                    AccessibilityNodeInfo.ACTION_NEXT_AT_MOVEMENT_GRANULARITY,
                 )
-                val up = service.dispatchKeyEvent(
-                    KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_TAB),
-                )
-                down && up
-            }
             ImeAction.BACKSPACE -> {
                 val text = node.text?.toString().orEmpty()
                 if (text.isEmpty()) true
