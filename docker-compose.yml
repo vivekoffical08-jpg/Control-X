@@ -1,0 +1,51 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-controlx}
+      MYSQL_USER: ${MYSQL_USER:-controlx_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      CONTROLX_API_TOKEN: ${CONTROLX_API_TOKEN:-change-this-api-token}
+      CONTROLX_SERVER_PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-controlx}
+      MYSQL_USER: ${MYSQL_USER:-controlx_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-this-root-password}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - controlx_mysql:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "127.0.0.1",
+          "-u",
+          "root",
+          "-p${MYSQL_ROOT_PASSWORD:-change-this-root-password}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  controlx_mysql:

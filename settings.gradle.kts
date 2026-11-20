@@ -18,3 +18,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ControlX"
 include(":app")
+include(":server")

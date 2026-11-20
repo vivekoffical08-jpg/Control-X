@@ -39,6 +39,12 @@ jobs:
       - name: Run unit tests
         run: gradle -PappVersionCode=${{ github.run_number }} -PappVersionName=0.1.${{ github.run_number }} testDebugUnitTest
 
+      - name: Build backend API
+        run: gradle -p server installDist
+
+      - name: Validate database Compose configuration
+        run: docker compose config --quiet
+
       - name: Build debug APK
         run: gradle -PappVersionCode=${{ github.run_number }} -PappVersionName=0.1.${{ github.run_number }} assembleDebug
 

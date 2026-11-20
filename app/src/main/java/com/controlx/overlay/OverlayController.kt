@@ -7,6 +7,7 @@ import com.controlx.input.VoiceInputManager
 import com.controlx.router.FastPathRouter
 import com.controlx.security.ExecutionGuard
 import com.controlx.platform.GroqKeyStore
+import com.controlx.platform.CommandApiClient
 import com.controlx.agent.UniversalTaskRunner
 import com.controlx.agent.UniversalTaskRunner.TaskResult
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +28,7 @@ class OverlayController(
     private val voiceInput by lazy { VoiceInputManager(appContext) }
     private val router = FastPathRouter(appContext)
     private val groqKeyStore by lazy { GroqKeyStore(appContext) }
+    private val commandApiClient by lazy { CommandApiClient(appContext) }
     private val taskRunner by lazy {
         UniversalTaskRunner(appContext) { groqKeyStore.load() }
     }
@@ -112,6 +114,28 @@ class OverlayController(
             router.route(command)
         }
         val elapsed = (System.nanoTime() - started) / 1_000_000
+
+        val recordStatus = when (result) {
+            is FastPathResult.Executed -> "executed"
+            FastPathResult.Unhandled -> "unhandled"
+            is FastPathResult.Error -> "error"
+        }
+        val recordMessage = when (result) {
+            is FastPathResult.Executed -> result.message
+            FastPathResult.Unhandled -> "No Fast-Path match."
+            is FastPathResult.Error -> result.reason
+        }
+        scope.launch(Dispatchers.IO) {
+            if (commandApiClient.isConfigured()) {
+                commandApiClient.saveCommand(
+                    commandText = command,
+                    source = "overlay",
+                    resultStatus = recordStatus,
+                    resultMessage = recordMessage,
+                    latencyMs = elapsed,
+                )
+            }
+        }
 
         if (executionGuard.checkCanContinue().let { it is com.controlx.security.GuardResult.Blocked }) {
             dismissImmediate()

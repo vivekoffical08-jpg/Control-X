@@ -364,6 +364,13 @@ Future development should proceed in this order:
 - Added settings load, save, and clear controls.
 - Overlay unhandled commands now enter `UniversalTaskRunner` instead of stopping after Fast-Path mismatch.
 
+### 2026-11-21 — MySQL Command History
+
+- Added Dockerized MySQL 8.4 schema and least-privilege backend API structure.
+- Added bearer-token protected `POST /api/v1/commands` storage endpoint.
+- Added Android encrypted API configuration and command-history synchronization.
+- Android uses a random device ID and never receives MySQL credentials.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

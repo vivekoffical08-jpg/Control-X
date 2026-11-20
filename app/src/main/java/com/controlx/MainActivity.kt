@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import com.controlx.platform.GroqKeyStore
+import com.controlx.platform.CommandApiClient
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -65,6 +66,7 @@ class MainActivity : ComponentActivity() {
     )
     private var overlayController: OverlayController? = null
     private val groqKeyStore by lazy { GroqKeyStore(this) }
+    private val commandApiClient by lazy { CommandApiClient(this) }
     private var startupCrash by mutableStateOf(
         (application as? ControlXApplication)
             ?.let { ControlXApplication.readLastCrash(it) },
@@ -101,6 +103,15 @@ class MainActivity : ComponentActivity() {
                             },
                             onClearGroqKey = {
                                 groqKeyStore.clear()
+                            },
+                            onLoadApiConfiguration = {
+                                commandApiClient.getConfiguration()
+                            },
+                            onSaveApiConfiguration = { baseUrl, apiToken ->
+                                commandApiClient.configure(baseUrl, apiToken)
+                            },
+                            onClearApiConfiguration = {
+                                commandApiClient.clearConfiguration()
                             },
                         )
                     }
@@ -162,6 +173,9 @@ private fun PermissionDashboard(
     onLoadGroqKey: () -> String,
     onSaveGroqKey: (String) -> Boolean,
     onClearGroqKey: () -> Boolean,
+    onLoadApiConfiguration: () -> CommandApiClient.ApiConfiguration,
+    onSaveApiConfiguration: (String, String) -> Boolean,
+    onClearApiConfiguration: () -> Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -169,11 +183,24 @@ private fun PermissionDashboard(
     var diagnosticResult by mutableStateOf("Enter a Fast-Path command.")
     var groqKey by mutableStateOf("")
     var groqStatus by mutableStateOf("Not configured")
+    var apiBaseUrl by mutableStateOf("")
+    var apiToken by mutableStateOf("")
+    var apiStatus by mutableStateOf("Not configured")
     LaunchedEffect(Unit) {
         onPermissionsChanged()
         val loaded = withContext(Dispatchers.IO) { onLoadGroqKey() }
         groqKey = loaded
         groqStatus = if (loaded.isBlank()) "Not configured" else "Configured"
+        val apiConfiguration = withContext(Dispatchers.IO) {
+            onLoadApiConfiguration()
+        }
+        apiBaseUrl = apiConfiguration.baseUrl
+        apiToken = apiConfiguration.apiToken
+        apiStatus = if (apiConfiguration.baseUrl.isBlank()) {
+            "Not configured"
+        } else {
+            "Configured"
+        }
     }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -302,6 +329,58 @@ private fun PermissionDashboard(
                             if (cleared) {
                                 groqKey = ""
                                 groqStatus = "Not configured"
+                            }
+                        }
+                    }
+                },
+            ) {
+                Text("CLEAR")
+            }
+        }
+
+        Text("COMMAND DATABASE: $apiStatus")
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = apiBaseUrl,
+            onValueChange = { apiBaseUrl = it },
+            singleLine = true,
+            placeholder = { Text("https://api.example.com") },
+        )
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = apiToken,
+            onValueChange = { apiToken = it },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            placeholder = { Text("Control X API token") },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        val saved = onSaveApiConfiguration(apiBaseUrl, apiToken)
+                        withContext(Dispatchers.Main) {
+                            apiStatus = if (saved) "Configured" else "Invalid settings"
+                        }
+                    }
+                },
+            ) {
+                Text("SAVE DATABASE")
+            }
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        val cleared = onClearApiConfiguration()
+                        withContext(Dispatchers.Main) {
+                            if (cleared) {
+                                apiBaseUrl = ""
+                                apiToken = ""
+                                apiStatus = "Not configured"
                             }
                         }
                     }
