@@ -304,6 +304,11 @@ Future development should proceed in this order:
 - Published release `v0.1.7` with a downloadable `app-debug.apk` asset.
 - Repository is public so users can access releases directly without Android Studio or repository permissions.
 
+### 2026-11-20 — Android Play Protect Guidance
+
+- Added `INSTALL_ANDROID.md` with safe sideload testing, Play Protect explanation, ADB installation, and the Google Play production route.
+- Added README guidance explaining that Play Protect may block powerful sideloaded apps even when GitHub Actions builds them successfully.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

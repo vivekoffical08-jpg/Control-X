@@ -11,6 +11,8 @@ No Android Studio or developer tools are required for users.
 3. On Android, allow installation from the browser/file manager when prompted.
 4. Open Control X and grant Microphone, Overlay, and Accessibility permissions.
 
+If Android shows **“App blocked to protect your device”**, read [INSTALL_ANDROID.md](INSTALL_ANDROID.md). This can happen for sideloaded APKs that request Accessibility, Overlay, Camera, or Microphone access. It does not mean the APK was compiled incorrectly.
+
 The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
 
 ## Developer build
