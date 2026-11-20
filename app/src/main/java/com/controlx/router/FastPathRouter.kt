@@ -17,10 +17,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class FastPathRouter(private val context: Context) {
-    private val audioManager =
+    private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val cameraManager =
+    }
+    private val cameraManager by lazy {
         context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+    }
 
     suspend fun route(command: String): FastPathResult = withContext(Dispatchers.Default) {
         val started = System.nanoTime()

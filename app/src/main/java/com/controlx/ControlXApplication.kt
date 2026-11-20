@@ -7,21 +7,25 @@ class ControlXApplication : Application() {
         super.onCreate()
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            getSharedPreferences("controlx_crash", MODE_PRIVATE)
-                .edit()
-                .putString(
-                    "last_crash",
-                    buildString {
-                        append(thread.name).append('\n')
-                        append(throwable.javaClass.name).append(": ")
-                        append(throwable.message)
-                        append('\n')
-                        throwable.stackTrace.take(12).forEach { frame ->
-                            append(frame.toString()).append('\n')
+            try {
+                getSharedPreferences("controlx_crash", MODE_PRIVATE)
+                    .edit()
+                    .putString(
+                        "last_crash",
+                        buildString {
+                            append(thread.name).append('\n')
+                            append(throwable.javaClass.name).append(": ")
+                            append(throwable.message)
+                            append('\n')
+                            throwable.stackTrace.take(12).forEach { frame ->
+                                append(frame.toString()).append('\n')
+                            }
                         }
-                    },
-                )
-                .commit()
+                    )
+                    .commit()
+            } catch (_: Exception) {
+                // Preserve the original Android crash handler even if storage fails.
+            }
             previousHandler?.uncaughtException(thread, throwable)
         }
     }

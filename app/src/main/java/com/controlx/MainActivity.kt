@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
 
     private val repository by lazy { PermissionRepository(this) }
     private var permissions by mutableStateOf(repository.snapshot())
-    private lateinit var overlayController: OverlayController
+    private var overlayController: OverlayController? = null
     private var startupCrash by mutableStateOf(
         (application as? ControlXApplication)
             ?.let { ControlXApplication.readLastCrash(it) },
@@ -52,49 +52,61 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        overlayController = OverlayController(this)
-        handleLaunchIntent(intent)
-        setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    PermissionDashboard(
-                        permissions = permissions,
-                        startupCrash = startupCrash,
-                        onPermissionsChanged = { permissions = repository.snapshot() },
-                        onLaunchOverlay = {
-                            if (permissions.microphoneGranted &&
-                                permissions.overlayGranted
-                            ) {
-                                overlayController.show()
-                            }
-                        },
-                    )
+        try {
+            handleLaunchIntent(intent)
+        } catch (_: Exception) {
+            // Startup launch actions are best-effort; the dashboard remains available.
+        }
+        try {
+            setContent {
+                MaterialTheme {
+                    Surface(modifier = Modifier.fillMaxSize()) {
+                        PermissionDashboard(
+                            permissions = permissions,
+                            startupCrash = startupCrash,
+                            onPermissionsChanged = {
+                                runCatching { permissions = repository.snapshot() }
+                            },
+                            onLaunchOverlay = {
+                                if (permissions.microphoneGranted &&
+                                    permissions.overlayGranted
+                                ) {
+                                    runCatching { getOverlayController().show() }
+                                }
+                            },
+                        )
+                    }
                 }
             }
+        } catch (error: Exception) {
+            startupCrash = "Compose startup failure: ${error.javaClass.name}: ${error.message}"
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleLaunchIntent(intent)
+        runCatching { handleLaunchIntent(intent) }
     }
 
     private fun handleLaunchIntent(intent: Intent) {
         if (intent.action != ACTION_LAUNCH_OVERLAY) return
         val snapshot = PermissionRepository(this).snapshot()
         if (snapshot.microphoneGranted && snapshot.overlayGranted) {
-            overlayController.show()
+            getOverlayController().show()
         }
     }
 
+    private fun getOverlayController(): OverlayController =
+        overlayController ?: OverlayController(this).also { overlayController = it }
+
     override fun onResume() {
         super.onResume()
-        permissions = repository.snapshot()
+        runCatching { permissions = repository.snapshot() }
     }
 
     override fun onDestroy() {
-        if (::overlayController.isInitialized) overlayController.destroy()
+        overlayController?.destroy()
         super.onDestroy()
     }
 }

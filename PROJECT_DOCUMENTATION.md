@@ -325,6 +325,13 @@ Future development should proceed in this order:
 - Added speech-recognition availability checking and a clear error instead of constructing the recognizer during app startup.
 - Added a shared uncaught-exception capture that is displayed on the next dashboard launch for diagnosis.
 
+### 2026-11-20 — Human-Gesture Engine
+
+- Expanded `GestureExecutor` with tap, double tap, long press, swipe, drag/drop, pinch, text injection, IME actions, selection, copy, cut, paste, and global navigation methods.
+- Added bounded 10-step `ReActEngine.runGoal` execution with stale-node rejection, settle delay, loop guards, auto-scroll recovery, and safety verdict enforcement.
+- Added lazy hardware initialization and defensive startup try/catch handling in `MainActivity`.
+- Added global uncaught-exception capture that persists crash details in shared preferences for safe next-launch diagnostics.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.
