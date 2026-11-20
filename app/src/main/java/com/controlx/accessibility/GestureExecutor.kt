@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.controlx.domain.ScrollDirection
 
@@ -190,14 +191,24 @@ class GestureExecutor(
         if (!node.isEditable || node.isPassword) return false
         node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         return when (action) {
-            ImeAction.ENTER, ImeAction.SEARCH, ImeAction.SEND ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    AccessibilityNodeInfo.ACTION_IME_ENTER
-                } else {
-                    AccessibilityNodeInfo.ACTION_CLICK
-                }.let { node.performAction(it) }
-            ImeAction.NEXT ->
-                node.performAction(AccessibilityNodeInfo.ACTION_NEXT_AT_MOVEMENT_GRANULARITY)
+            ImeAction.ENTER, ImeAction.SEARCH, ImeAction.SEND -> {
+                val down = service.dispatchKeyEvent(
+                    KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER),
+                )
+                val up = service.dispatchKeyEvent(
+                    KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER),
+                )
+                down && up
+            }
+            ImeAction.NEXT -> {
+                val down = service.dispatchKeyEvent(
+                    KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB),
+                )
+                val up = service.dispatchKeyEvent(
+                    KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_TAB),
+                )
+                down && up
+            }
             ImeAction.BACKSPACE -> {
                 val text = node.text?.toString().orEmpty()
                 if (text.isEmpty()) true

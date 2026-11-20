@@ -62,7 +62,7 @@ class ReActEngine(
         val history = mutableListOf<ActionRecord>()
         var previousFingerprint: String? = null
 
-        repeat(10) { step ->
+        for (step in 0 until 10) {
             val snapshot = screenProvider.capture()
                 ?: return LoopResult.Failed("Screen snapshot is unavailable.")
             val fingerprint = screenFingerprint(snapshot)
