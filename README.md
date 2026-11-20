@@ -2,6 +2,8 @@
 
 For complete architecture, module status, Android/OEM limitations, security boundaries, build instructions, and change history, see [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md).
 
+For the Android/iOS separation strategy and iOS platform constraints, see [docs/CROSS_PLATFORM_ARCHITECTURE.md](docs/CROSS_PLATFORM_ARCHITECTURE.md).
+
 ## Install the Android app
 
 No Android Studio or developer tools are required for users.

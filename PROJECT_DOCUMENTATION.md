@@ -332,6 +332,11 @@ Future development should proceed in this order:
 - Added lazy hardware initialization and defensive startup try/catch handling in `MainActivity`.
 - Added global uncaught-exception capture that persists crash details in shared preferences for safe next-launch diagnostics.
 
+### 2026-11-20 — Cross-Platform Architecture Foundation
+
+- Added `docs/CROSS_PLATFORM_ARCHITECTURE.md` describing platform-neutral core, Android/iOS adapters, iOS limitations, shared safety, and implementation phases.
+- Added platform-neutral Kotlin contracts under `com.controlx.core` for voice, fast path, perception, gesture, brain, and safety ports.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.
