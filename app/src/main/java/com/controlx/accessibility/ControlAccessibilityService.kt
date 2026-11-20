@@ -59,6 +59,7 @@ class ControlAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         _snapshot.value = null
+        nodeParser.clear()
     }
 
     override fun onDestroy() {

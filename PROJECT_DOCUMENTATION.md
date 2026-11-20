@@ -89,6 +89,7 @@ app/
 - Open Wi-Fi settings panel or Bluetooth/display settings.
 - Dispatch alarm and timer setup intents.
 - Route Home through a public launcher intent.
+- Route `search`, `google`, `look up`, and `find` commands to a Google browser search URL.
 - Return explicit errors for Back and Recents when no accessibility service is available.
 
 ### Android limitations
@@ -217,6 +218,40 @@ The overlay implementation is permission-gated and uses `TYPE_APPLICATION_OVERLA
 - Live transcript and latency state can be updated.
 - The panel can trigger the shared kill switch.
 - A full neon execution aura and production soundwave visualizer are not yet implemented.
+
+## 12. Assistant Activation and Invocation
+
+The app implements `VoiceInteractionService`, `VoiceInteractionSessionService`, and
+`ACTION_ASSIST` for supported Android/OEM activation paths. The dashboard exposes
+the device voice-input/default-assistant settings route and explains that menu names
+vary.
+
+The power button cannot be intercepted by a normal third-party app. The supported
+power-hold flow is indirect: the user selects Control X in Android/OEM digital
+assistant Settings, and the OEM routes its power-hold gesture to the default assistant.
+Availability depends on Android and OEM policy, lock-screen state, Accessibility,
+overlay permission, and process retention.
+
+## 13. Current Hardening
+
+- Fast-Path and agent paths reject credential, financial, purchase, and destructive commands.
+- Password/PIN/OTP/CVV/passcode nodes are redacted and cannot receive agent text.
+- Agent execution is snapshot-grounded: node IDs must exist in the latest accessibility snapshot.
+- ReAct execution is limited to 10 steps and stops on the shared kill switch.
+- Repeated action/screen states are blocked as anti-loop behavior.
+- Every non-FINISH/FAIL ReAct action requires an explicit Allow decision in the overlay.
+- Overlay and typed/voice commands share the kill switch and stop immediately on Volume Down.
+- Diagnostics show startup crashes and permission state for onboarding and troubleshooting.
+
+## 14. Known Platform Limitations
+
+- Some OEMs do not offer a 3–4 second power-hold assistant setting.
+- Some settings routes change labels or require a separate system app selection step.
+- Background speech recognition may be suspended by OEM battery/process policies.
+- Secure apps, banking apps, authentication apps, device policy, native canvases,
+  and custom widgets may expose no safe automation surface.
+- Third-party apps cannot silently enable Accessibility, Overlay, Default Assistant,
+  or protected system settings.
 
 ## 12. Android and OEM Constraints
 

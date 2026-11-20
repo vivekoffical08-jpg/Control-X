@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
             writeSettingsGranted = false,
             accessibilityGranted = false,
             batteryOptimizationIgnored = false,
+            digitalAssistantGranted = false,
         ),
     )
     private var overlayController: OverlayController? = null
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        intent?.let(::handleLaunchIntent)
         try {
             setContent {
                 MaterialTheme(
@@ -284,6 +286,34 @@ private fun PermissionDashboard(
             PermissionRow("Microphone", permissions.microphoneGranted) {
                 permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
             }
+            PermissionRow("Notifications", permissions.notificationsGranted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissionLauncher.launch(
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    )
+                }
+            }
+            PermissionRow("Digital assistant", permissions.digitalAssistantGranted) {
+                val routes = listOf(
+                    Settings.ACTION_VOICE_INPUT_SETTINGS,
+                    "com.android.settings.action.VOICE_INPUT_SETTINGS",
+                    Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS,
+                )
+                val opened = routes.firstNotNullOfOrNull { action ->
+                    runCatching {
+                        context.startActivity(
+                            Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                        true
+                    }.getOrNull()
+                }
+                if (opened != true) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
             PermissionRow("Overlay", permissions.overlayGranted) {
                 context.startActivity(
                     Intent(
@@ -298,12 +328,26 @@ private fun PermissionDashboard(
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             }
+            PermissionRow("Write settings", permissions.writeSettingsGranted) {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                        Uri.parse("package:${context.packageName}"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
             PermissionRow("Battery exemption", permissions.batteryOptimizationIgnored) {
                 context.startActivity(
                     Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             }
+            Text(
+                "Power-hold activation: open Digital Assistant / Default apps / Assist settings, " +
+                    "then select Control X. Android and OEM menus vary, and 3–4 second power-hold " +
+                    "support is not guaranteed. A normal app cannot intercept the power key.",
+                color = Color(0xFF94A3B8),
+            )
         }
 
         ControlCard(

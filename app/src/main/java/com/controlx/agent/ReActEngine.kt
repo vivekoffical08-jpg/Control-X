@@ -7,6 +7,8 @@ import com.controlx.domain.ActionType
 import com.controlx.domain.ScrollDirection
 import com.controlx.security.SafetyGuardian
 import com.controlx.security.SafetyVerdict
+import com.controlx.security.ExecutionGuard
+import com.controlx.security.GuardResult
 import kotlinx.coroutines.delay
 
 class ReActEngine(
@@ -58,11 +60,15 @@ class ReActEngine(
         safetyGuardian: SafetyGuardian = SafetyGuardian(),
         settleMillis: Long = 600,
         onStep: (String) -> Unit = {},
+        actionApprover: suspend (AgentAction) -> Boolean = { false },
     ): LoopResult {
         val history = mutableListOf<ActionRecord>()
         var previousFingerprint: String? = null
 
         for (step in 0 until 10) {
+            if (ExecutionGuard.shared.checkCanContinue() is GuardResult.Blocked) {
+                return LoopResult.Blocked("Execution stopped by the user.")
+            }
             val snapshot = screenProvider.capture()
                 ?: return LoopResult.Failed("Screen snapshot is unavailable.")
             val fingerprint = screenFingerprint(snapshot)
@@ -99,6 +105,11 @@ class ReActEngine(
                 })
             }
 
+            if (detectLoop(history, snapshot)) {
+                onStep("Repeated action and screen detected. Ending safely.")
+                return LoopResult.Blocked("The agent stopped to avoid a repeated action loop.")
+            }
+
             val validNode = action.targetNodeId?.let { targetId ->
                 snapshot.nodes.any { it.id == targetId }
             } ?: true
@@ -115,6 +126,12 @@ class ReActEngine(
             }
 
             onStep("Step ${step + 1}: ${action.thought}")
+            if (action.action != ActionType.FINISH &&
+                action.action != ActionType.FAIL &&
+                !actionApprover(action)
+            ) {
+                return LoopResult.Blocked("The proposed action was not approved.")
+            }
             val executed = actionExecutor.execute(action, snapshot)
             if (!executed) {
                 onStep("Action failed. Retrying with a visible coordinate gesture.")

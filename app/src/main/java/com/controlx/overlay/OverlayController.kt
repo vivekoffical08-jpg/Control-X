@@ -10,6 +10,8 @@ import com.controlx.platform.GroqKeyStore
 import com.controlx.platform.CommandApiClient
 import com.controlx.agent.UniversalTaskRunner
 import com.controlx.agent.UniversalTaskRunner.TaskResult
+import com.controlx.security.SensitiveActionPolicy
+import com.controlx.security.SensitiveActionDecision
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,6 +20,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.controlx.domain.AgentAction
+import kotlinx.coroutines.CompletableDeferred
 
 class OverlayController(
     context: Context,
@@ -34,12 +38,17 @@ class OverlayController(
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listeningForCompletion = false
+    private val sensitiveActionPolicy = SensitiveActionPolicy()
+    private var pendingAgentConfirmation: CompletableDeferred<Boolean>? = null
 
     init {
         manager.onDismissRequested = { dismiss() }
         manager.onEmergencyAbort = { emergencyAbort() }
         manager.onTranscriptSubmit = { command ->
             scope.launch { processCommand(command) }
+        }
+        manager.onAgentActionApproval = { approved ->
+            pendingAgentConfirmation?.complete(approved)
         }
 
         scope.launch {
@@ -103,6 +112,16 @@ class OverlayController(
     }
 
     private suspend fun processCommand(command: String) {
+        when (val sensitive = sensitiveActionPolicy.evaluate(command)) {
+            is SensitiveActionDecision.Blocked -> {
+                listeningForCompletion = false
+                voiceInput.stopListening()
+                manager.setState(OverlayState.PARSING)
+                manager.updateTranscript("✕ ${sensitive.reason}", 0)
+                return
+            }
+            SensitiveActionDecision.Allowed -> Unit
+        }
         if (!listeningForCompletion) listeningForCompletion = true
         listeningForCompletion = false
         voiceInput.stopListening()
@@ -151,7 +170,9 @@ class OverlayController(
             }
             FastPathResult.Unhandled -> {
                 manager.setState(OverlayState.PARSING)
-                val agentResult = taskRunner.run(command)
+                val agentResult = taskRunner.run(command) { action ->
+                    requestAgentActionApproval(action)
+                }
                 when (agentResult) {
                     is TaskResult.Executed -> {
                         manager.setState(OverlayState.EXECUTING)
@@ -184,4 +205,19 @@ class OverlayController(
         voiceInput.stopListening()
         manager.hide()
         }
+
+    private suspend fun requestAgentActionApproval(action: AgentAction): Boolean {
+        pendingAgentConfirmation?.cancel()
+        val confirmation = CompletableDeferred<Boolean>()
+        pendingAgentConfirmation = confirmation
+        manager.requestAgentActionApproval(
+            action.thought.ifBlank { action.action.name.lowercase() },
+        )
+        return try {
+            confirmation.await()
+        } finally {
+            pendingAgentConfirmation = null
+            manager.clearAgentActionApproval()
+        }
+    }
 }

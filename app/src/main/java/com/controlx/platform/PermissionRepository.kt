@@ -33,8 +33,29 @@ class PermissionRepository(
             writeSettingsGranted = Settings.System.canWrite(context),
             accessibilityGranted = isAccessibilityServiceEnabled(),
             batteryOptimizationIgnored = isBatteryOptimizationIgnored(),
+            digitalAssistantGranted = isDigitalAssistantSelected(),
         )
     }
+
+    private fun isDigitalAssistantSelected(): Boolean {
+        val resolver = context.contentResolver
+        val selectedValues = listOf(
+            runCatching {
+                Settings.Secure.getString(resolver, "voice_interaction_service")
+            }.getOrNull(),
+            runCatching {
+                Settings.Secure.getString(resolver, "assistant")
+            }.getOrNull(),
+        )
+        val serviceName = "${context.packageName}/${ControlXAssistantComponentName()}"
+        return selectedValues.any { value ->
+            value.orEmpty().contains(context.packageName) ||
+                value.orEmpty().contains(serviceName)
+        }
+    }
+
+    private fun ControlXAssistantComponentName(): String =
+        com.controlx.assistant.ControlXVoiceService::class.java.name
 
     private fun isAccessibilityServiceEnabled(): Boolean {
         val accessibilityManager =

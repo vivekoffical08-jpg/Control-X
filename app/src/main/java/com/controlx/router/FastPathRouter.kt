@@ -20,8 +20,11 @@ import com.controlx.domain.RequestSource
 import com.controlx.domain.VolumeDirection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.controlx.security.SensitiveActionPolicy
+import com.controlx.security.SensitiveActionDecision
 
 class FastPathRouter(private val context: Context) {
+    private val sensitiveActionPolicy = SensitiveActionPolicy()
     private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -30,6 +33,12 @@ class FastPathRouter(private val context: Context) {
     }
 
     suspend fun route(command: String): FastPathResult = withContext(Dispatchers.Default) {
+        when (val sensitive = sensitiveActionPolicy.evaluate(command)) {
+            is SensitiveActionDecision.Blocked -> {
+                return@withContext FastPathResult.Error(sensitive.reason)
+            }
+            SensitiveActionDecision.Allowed -> Unit
+        }
         val started = System.nanoTime()
         val normalized = command.trim().lowercase()
         val result = when {
@@ -68,6 +77,8 @@ class FastPathRouter(private val context: Context) {
                     android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS,
                     "Notifications",
                 )
+            normalized.matches(Regex("""^(search|google|look up|find)\b.*""")) ->
+                searchInternet(normalized)
             normalized.matches(Regex("""^(lock|lock screen)$""")) ->
                 globalNavigation(
                     android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
@@ -219,6 +230,22 @@ class FastPathRouter(private val context: Context) {
         }
     }
 
+    private fun searchInternet(normalized: String): FastPathResult {
+        val query = Regex("""(?i)^(?:search|google|look up|find)(?:\s+(?:for|about|on))?\s+(.+)""")
+            .find(normalized)
+            ?.groupValues
+            ?.get(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return FastPathResult.Error("Say 'search for' followed by a topic.")
+
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return launch(intent, "Opened browser search for '$query'.")
+    }
+
     private fun globalNavigation(action: Int, message: String): FastPathResult =
         if (ControlAccessibilityService.performGlobalAction(action)) {
             FastPathResult.Executed(message, 0)
@@ -275,6 +302,16 @@ class FastPathRouter(private val context: Context) {
         return try {
             context.startActivity(intent)
             FastPathResult.Executed("Action dispatched.", 0)
+        } catch (error: Exception) {
+            FastPathResult.Error(error.message ?: "Unable to dispatch action.")
+        }
+    }
+
+    private fun launch(intent: Intent, successMessage: String): FastPathResult {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            context.startActivity(intent)
+            FastPathResult.Executed(successMessage, 0)
         } catch (error: Exception) {
             FastPathResult.Error(error.message ?: "Unable to dispatch action.")
         }
