@@ -13,6 +13,17 @@ No Android Studio or developer tools are required for users.
 
 If Android shows **“App blocked to protect your device”**, read [INSTALL_ANDROID.md](INSTALL_ANDROID.md). This can happen for sideloaded APKs that request Accessibility, Overlay, Camera, or Microphone access. It does not mean the APK was compiled incorrectly.
 
+## Activate Control X
+
+The app provides a **Quick Settings** tile labeled `Control X`. After installation:
+
+1. Open the notification shade.
+2. Edit Quick Settings.
+3. Drag **Control X** into the active tiles.
+4. Tap the tile to open the overlay and start listening.
+
+A third-party app cannot intercept a three-second power-button press on standard Android. The power key is reserved by Android and the OEM. Supporting that exact gesture requires a custom OEM firmware/integration or a device-owner/system-signed app, neither of which is available through a normal Play Store app.
+
 The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
 
 ## Developer build

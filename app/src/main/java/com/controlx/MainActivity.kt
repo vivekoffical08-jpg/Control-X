@@ -38,6 +38,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val ACTION_LAUNCH_OVERLAY = "com.controlx.action.LAUNCH_OVERLAY"
+    }
+
     private val repository by lazy { PermissionRepository(this) }
     private var permissions by mutableStateOf(repository.snapshot())
     private lateinit var overlayController: OverlayController
@@ -45,6 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         overlayController = OverlayController(this)
+        handleLaunchIntent(intent)
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -56,6 +61,20 @@ class MainActivity : ComponentActivity() {
                                 permissions.overlayGranted
                             ) {
                                 overlayController.show()
+                            }
+
+                            override fun onNewIntent(intent: Intent) {
+                                super.onNewIntent(intent)
+                                setIntent(intent)
+                                handleLaunchIntent(intent)
+                            }
+
+                            private fun handleLaunchIntent(intent: Intent) {
+                                if (intent.action != ACTION_LAUNCH_OVERLAY) return
+                                val snapshot = PermissionRepository(this).snapshot()
+                                if (snapshot.microphoneGranted && snapshot.overlayGranted) {
+                                    overlayController.show()
+                                }
                             }
                         },
                     )

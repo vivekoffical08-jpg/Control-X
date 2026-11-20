@@ -309,6 +309,12 @@ Future development should proceed in this order:
 - Added `INSTALL_ANDROID.md` with safe sideload testing, Play Protect explanation, ADB installation, and the Google Play production route.
 - Added README guidance explaining that Play Protect may block powerful sideloaded apps even when GitHub Actions builds them successfully.
 
+### 2026-11-20 — Quick Settings Activation
+
+- Added a Quick Settings tile that launches the Control X overlay.
+- Added an explicit `MainActivity` overlay-launch action used by the tile.
+- The Android power button's three-second OEM gesture cannot be captured by a normal third-party app; it remains an OEM/system integration requirement.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.
