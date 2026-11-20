@@ -10,9 +10,9 @@ import android.speech.SpeechRecognizer
 class VoiceInputManager(context: Context) {
     private val recognizer =
         SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
-    private var onPartial: (String) -> Unit = {}
-    private var onFinal: (String) -> Unit = {}
-    private var onError: (Int) -> Unit = {}
+    private var partialCallback: (String) -> Unit = {}
+    private var finalCallback: (String) -> Unit = {}
+    private var errorCallback: (Int) -> Unit = {}
 
     init {
         recognizer.setRecognitionListener(object : RecognitionListener {
@@ -25,16 +25,16 @@ class VoiceInputManager(context: Context) {
             override fun onPartialResults(partialResults: Bundle?) {
                 partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
-                    ?.let { text -> onPartial(text) }
+                    ?.let { text -> partialCallback(text) }
             }
 
             override fun onResults(results: Bundle?) {
                 results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
-                    ?.let { text -> onFinal(text) }
+                    ?.let { text -> finalCallback(text) }
             }
 
-            override fun onError(error: Int) = onError(error)
+            override fun onError(error: Int) = errorCallback(error)
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
         })
     }
@@ -44,9 +44,9 @@ class VoiceInputManager(context: Context) {
         onFinal: (String) -> Unit,
         onError: (Int) -> Unit,
     ) {
-        this.onPartial = onPartial
-        this.onFinal = onFinal
-        this.onError = onError
+        partialCallback = onPartial
+        finalCallback = onFinal
+        errorCallback = onError
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(
@@ -65,8 +65,8 @@ class VoiceInputManager(context: Context) {
 
     fun destroy() {
         recognizer.destroy()
-        onPartial = {}
-        onFinal = {}
-        onError = {}
+        partialCallback = {}
+        finalCallback = {}
+        errorCallback = {}
     }
 }
