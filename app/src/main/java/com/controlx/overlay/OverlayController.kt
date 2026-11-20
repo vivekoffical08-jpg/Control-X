@@ -10,7 +10,7 @@ import com.controlx.security.ExecutionGuard
 
 class OverlayController(
     context: Context,
-    private val executionGuard: ExecutionGuard,
+    private val executionGuard: ExecutionGuard = ExecutionGuard.shared,
 ) {
     private val appContext = context.applicationContext
     private val windowManager = appContext.getSystemService(WindowManager::class.java)

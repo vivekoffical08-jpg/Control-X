@@ -3,11 +3,17 @@ package com.controlx.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.KeyEvent
+import com.controlx.security.ExecutionGuard
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class ControlAccessibilityService : AccessibilityService() {
+    companion object {
+        val executionGuard = ExecutionGuard.shared
+    }
+
     private val _snapshot = MutableStateFlow<AccessibilitySnapshot?>(null)
     val snapshot: StateFlow<AccessibilitySnapshot?> = _snapshot.asStateFlow()
 
@@ -21,6 +27,16 @@ class ControlAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         _snapshot.value = null
+    }
+
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN &&
+            event.action == KeyEvent.ACTION_DOWN
+        ) {
+            executionGuard.stop()
+            return true
+        }
+        return super.onKeyEvent(event)
     }
 
     fun performSafeGlobalAction(action: SafeGlobalAction): Boolean {

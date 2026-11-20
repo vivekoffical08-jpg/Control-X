@@ -12,6 +12,12 @@ Control X is being built as a native Kotlin Android application with a deliberat
 - Agent proposal validator that rejects node identifiers absent from the current snapshot.
 - Synchronous kill-switch state and hard blocking for credential, financial, purchase, and destructive command terms.
 - Minimal overlay controller whose bubble click invokes the kill switch; it refuses to show without explicit overlay permission.
+- Public Android fast-path routing for launchable apps, torch, volume, settings panels, alarms, and timers.
+- Streaming `SpeechRecognizer` callback contract with partial and final results.
+- Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.
+- Accessibility click, text, scroll, coordinate gesture, and global-navigation actuator.
+- Groq JSON-object ReAct planning contract with 10-step loop limits and fingerprint loop detection.
+- Bottom assistant overlay surface, latency transcript state, and execution-state styling.
 - Agent proposals are never executable without explicit user confirmation.
 - No arbitrary accessibility automation, credential entry, arbitrary shell execution, root behavior, hidden APIs, or destructive actions are enabled by this foundation.
 

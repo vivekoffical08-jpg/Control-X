@@ -5,6 +5,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class ExecutionGuard {
+    companion object {
+        val shared = ExecutionGuard()
+    }
+
     private val _stopped = MutableStateFlow(false)
     val stopped: StateFlow<Boolean> = _stopped.asStateFlow()
 
