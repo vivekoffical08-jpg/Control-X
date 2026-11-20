@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Control X</string>
+    <string name="accessibility_service_description">Control X reads visible interface metadata to support user-approved actions.</string>
+</resources>
