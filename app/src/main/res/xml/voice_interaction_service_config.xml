@@ -1,4 +1,3 @@
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:sessionService="com.controlx.assistant.ControlXSessionService"
-    android:supportsAssist="true"
-    android:supportsLaunchFromKeyguard="false" />
+    android:supportsAssist="true" />
