@@ -10,6 +10,8 @@ import android.os.PowerManager
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
 import com.controlx.accessibility.ControlAccessibilityService
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 
 class PermissionRepository(
     private val context: Context,
@@ -34,6 +36,7 @@ class PermissionRepository(
             accessibilityGranted = isAccessibilityServiceEnabled(),
             batteryOptimizationIgnored = isBatteryOptimizationIgnored(),
             digitalAssistantGranted = isDigitalAssistantSelected(),
+            deviceAdminActive = isDeviceAdminActive(),
         )
     }
 
@@ -45,6 +48,9 @@ class PermissionRepository(
             }.getOrNull(),
             runCatching {
                 Settings.Secure.getString(resolver, "assistant")
+            }.getOrNull(),
+            runCatching {
+                Settings.Secure.getString(resolver, "voice_recognition_service")
             }.getOrNull(),
         )
         val serviceName = "${context.packageName}/${ControlXAssistantComponentName()}"
@@ -73,5 +79,15 @@ class PermissionRepository(
     private fun isBatteryOptimizationIgnored(): Boolean {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         return powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    private fun isDeviceAdminActive(): Boolean {
+        val policyManager =
+            context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val component = ComponentName(
+            context,
+            com.controlx.admin.ControlXDeviceAdminReceiver::class.java,
+        )
+        return policyManager.isAdminActive(component)
     }
 }

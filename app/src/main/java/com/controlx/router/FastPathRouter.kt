@@ -22,6 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.controlx.security.SensitiveActionPolicy
 import com.controlx.security.SensitiveActionDecision
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 
 class FastPathRouter(private val context: Context) {
     private val sensitiveActionPolicy = SensitiveActionPolicy()
@@ -80,10 +82,7 @@ class FastPathRouter(private val context: Context) {
             normalized.matches(Regex("""^(search|google|look up|find)\b.*""")) ->
                 searchInternet(normalized)
             normalized.matches(Regex("""^(lock|lock screen)$""")) ->
-                globalNavigation(
-                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
-                    "Screen locked",
-                )
+                lockScreen()
             normalized.contains("screenshot") ||
                 normalized.contains("take screen") ->
                 globalNavigation(
@@ -252,6 +251,27 @@ class FastPathRouter(private val context: Context) {
         } else {
             FastPathResult.Error("Enable Control X Accessibility to use $message.")
         }
+
+    private fun lockScreen(): FastPathResult {
+        val policyManager =
+            context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val component = ComponentName(
+            context,
+            com.controlx.admin.ControlXDeviceAdminReceiver::class.java,
+        )
+        if (policyManager.isAdminActive(component)) {
+            return try {
+                policyManager.lockNow()
+                FastPathResult.Executed("Screen locked through Device Admin.", 0)
+            } catch (error: Exception) {
+                FastPathResult.Error(error.message ?: "Unable to lock the screen.")
+            }
+        }
+        return globalNavigation(
+            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
+            "Screen locked",
+        )
+    }
 
     private fun coordinateScroll(direction: ScrollDirection, message: String): FastPathResult =
         if (ControlAccessibilityService.scroll(direction)) {

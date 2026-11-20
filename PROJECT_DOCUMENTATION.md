@@ -252,6 +252,11 @@ overlay permission, and process retention.
   and custom widgets may expose no safe automation surface.
 - Third-party apps cannot silently enable Accessibility, Overlay, Default Assistant,
   or protected system settings.
+- Battery optimization can be requested through
+  `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`; OEM policy may still require the
+  general Ignore battery optimization Settings screen.
+- Device Admin is optional and limited by policy to `force-lock`. It is never
+  enabled silently, and lock-only fallback through Accessibility remains available.
 
 ## 12. Android and OEM Constraints
 

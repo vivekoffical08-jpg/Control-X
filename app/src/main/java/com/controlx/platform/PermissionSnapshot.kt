@@ -8,4 +8,5 @@ data class PermissionSnapshot(
     val accessibilityGranted: Boolean = false,
     val batteryOptimizationIgnored: Boolean = false,
     val digitalAssistantGranted: Boolean = false,
+    val deviceAdminActive: Boolean = false,
 )

@@ -55,6 +55,7 @@ import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import com.controlx.platform.GroqKeyStore
 import com.controlx.platform.CommandApiClient
+import android.app.admin.DevicePolicyManager
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -70,6 +71,7 @@ class MainActivity : ComponentActivity() {
             accessibilityGranted = false,
             batteryOptimizationIgnored = false,
             digitalAssistantGranted = false,
+            deviceAdminActive = false,
         ),
     )
     private var overlayController: OverlayController? = null
@@ -337,10 +339,36 @@ private fun PermissionDashboard(
                 )
             }
             PermissionRow("Battery exemption", permissions.batteryOptimizationIgnored) {
-                context.startActivity(
-                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                val direct = runCatching {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}"),
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    true
+                }.getOrDefault(false)
+                if (!direct) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            PermissionRow("Device Admin", permissions.deviceAdminActive) {
+                val component = android.content.ComponentName(
+                    context,
+                    com.controlx.admin.ControlXDeviceAdminReceiver::class.java,
                 )
+                val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
+                    putExtra(
+                        DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                        "Control X uses Device Admin only to provide optional screen locking.",
+                    )
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
             }
             Text(
                 "Power-hold activation: open Digital Assistant / Default apps / Assist settings, " +

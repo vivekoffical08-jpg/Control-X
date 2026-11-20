@@ -37,6 +37,10 @@ Control X also registers Android voice-assistant entry points:
 
 A normal third-party app cannot directly intercept a 3–4 second power-button press. It works only when Android/OEM Settings routes the power-hold gesture to the selected digital assistant. Menu names, power-hold behavior, lock-screen behavior, and availability vary by phone; there is no guarantee on every Android OEM.
 
+**Battery optimization:** use **Battery exemption > SET UP** for the direct Android battery-exemption prompt. If the OEM blocks that prompt, the app opens the OEM battery optimization list as a fallback.
+
+**Optional Device Admin:** use **Device Admin > SET UP** only if you want `lock` commands to use Android Device Policy instead of Accessibility. Device Admin activation is user-controlled and may require confirmation or an alternate Settings flow by OEM.
+
 The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
 
 ## Developer build
