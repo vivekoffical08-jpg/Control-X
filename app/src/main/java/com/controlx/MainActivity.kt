@@ -62,24 +62,24 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 overlayController.show()
                             }
-
-                            override fun onNewIntent(intent: Intent) {
-                                super.onNewIntent(intent)
-                                setIntent(intent)
-                                handleLaunchIntent(intent)
-                            }
-
-                            private fun handleLaunchIntent(intent: Intent) {
-                                if (intent.action != ACTION_LAUNCH_OVERLAY) return
-                                val snapshot = PermissionRepository(this).snapshot()
-                                if (snapshot.microphoneGranted && snapshot.overlayGranted) {
-                                    overlayController.show()
-                                }
-                            }
                         },
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLaunchIntent(intent)
+    }
+
+    private fun handleLaunchIntent(intent: Intent) {
+        if (intent.action != ACTION_LAUNCH_OVERLAY) return
+        val snapshot = PermissionRepository(this).snapshot()
+        if (snapshot.microphoneGranted && snapshot.overlayGranted) {
+            overlayController.show()
         }
     }
 

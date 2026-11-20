@@ -315,6 +315,10 @@ Future development should proceed in this order:
 - Added an explicit `MainActivity` overlay-launch action used by the tile.
 - The Android power button's three-second OEM gesture cannot be captured by a normal third-party app; it remains an OEM/system integration requirement.
 
+### 2026-11-20 — Quick Settings Build Fix
+
+- Restored `onNewIntent` and launch-intent handling to class scope in `MainActivity`; they must not be declared inside the Compose launch lambda.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.
