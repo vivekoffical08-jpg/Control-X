@@ -343,6 +343,14 @@ Future development should proceed in this order:
 - Added persistent `filesDir/last_crash.txt` crash capture and an on-screen red diagnostic card with copy/clear actions.
 - Added Android `VoiceInteractionService`, session service, and `ACTION_ASSIST` fallback activity declarations.
 
+### 2026-11-21 — Working Fast-Path Controls
+
+- Wired app close/home/back/recents/notifications/quick-settings actions to the active accessibility service.
+- Added accessibility scroll commands and coordinate gesture fallback.
+- Added flashlight, exact media-volume, app launch, dial, alarm, timer, battery status, Wi-Fi/Bluetooth/display/hotspot/DND settings entry points.
+- Added CAMERA runtime onboarding alongside microphone permissions.
+- Agent/LLM execution remains separate and is not invoked by Fast-Path commands.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

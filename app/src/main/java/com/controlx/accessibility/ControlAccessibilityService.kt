@@ -12,6 +12,27 @@ import kotlinx.coroutines.flow.asStateFlow
 class ControlAccessibilityService : AccessibilityService() {
     companion object {
         val executionGuard = ExecutionGuard.shared
+        @Volatile
+        private var activeInstance: ControlAccessibilityService? = null
+
+        fun isActive(): Boolean = activeInstance != null
+
+        fun performGlobalAction(action: Int): Boolean =
+            activeInstance?.performGlobalAction(action) == true
+
+        fun scroll(direction: com.controlx.domain.ScrollDirection): Boolean {
+            val service = activeInstance ?: return false
+            val executor = GestureExecutor(service)
+            return executor.executeScroll(
+                service.rootInActiveWindow,
+                direction,
+            )
+        }
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        activeInstance = this
     }
 
     private val _snapshot = MutableStateFlow<AccessibilitySnapshot?>(null)
@@ -27,6 +48,11 @@ class ControlAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         _snapshot.value = null
+    }
+
+    override fun onDestroy() {
+        if (activeInstance === this) activeInstance = null
+        super.onDestroy()
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {

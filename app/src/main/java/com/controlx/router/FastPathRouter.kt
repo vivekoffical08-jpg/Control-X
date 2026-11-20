@@ -8,6 +8,11 @@ import android.media.AudioManager
 import android.provider.AlarmClock
 import android.provider.Settings
 import android.text.format.DateUtils
+import android.net.Uri
+import android.content.IntentFilter
+import android.os.BatteryManager
+import com.controlx.accessibility.ControlAccessibilityService
+import com.controlx.domain.ScrollDirection
 import com.controlx.domain.ActionId
 import com.controlx.domain.ActionRequest
 import com.controlx.domain.FastPathResult
@@ -28,12 +33,60 @@ class FastPathRouter(private val context: Context) {
         val started = System.nanoTime()
         val normalized = command.trim().lowercase()
         val result = when {
+            normalized.matches(Regex("""^(close|exit)\b.*""")) ->
+                if (ControlAccessibilityService.performGlobalAction(
+                        android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME,
+                    )
+                ) FastPathResult.Executed("Returned Home.", 0)
+                else launch(Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) })
             normalized.matches(Regex("""^(go )?home$""")) ->
-                launch(Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) })
+                if (ControlAccessibilityService.performGlobalAction(
+                        android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME,
+                    )
+                ) FastPathResult.Executed("Home opened.", 0)
+                else launch(Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) })
             normalized.matches(Regex("""^(go )?back$""")) ->
-                FastPathResult.Error("Back requires an active AccessibilityService.")
+                if (ControlAccessibilityService.performGlobalAction(
+                        android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK,
+                    )
+                ) FastPathResult.Executed("Back completed.", 0)
+                else FastPathResult.Error("Enable Accessibility to use Back.")
             normalized.matches(Regex("""^(open )?recents$""")) ->
-                FastPathResult.Error("Recents requires an active AccessibilityService.")
+                if (ControlAccessibilityService.performGlobalAction(
+                        android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS,
+                    )
+                ) FastPathResult.Executed("Recents opened.", 0)
+                else FastPathResult.Error("Enable Accessibility to use Recents.")
+            normalized.contains("quick settings") ->
+                globalNavigation(
+                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS,
+                    "Quick Settings",
+                )
+            normalized.contains("notifications") ||
+                normalized.contains("notification panel") ->
+                globalNavigation(
+                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS,
+                    "Notifications",
+                )
+            normalized.matches(Regex("""^(lock|lock screen)$""")) ->
+                globalNavigation(
+                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
+                    "Screen locked",
+                )
+            normalized.contains("screenshot") ||
+                normalized.contains("take screen") ->
+                globalNavigation(
+                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT,
+                    "Screenshot captured",
+                )
+            normalized.contains("scroll up") ->
+                coordinateScroll(ScrollDirection.UP, "Scrolled up.")
+            normalized.contains("scroll down") ->
+                coordinateScroll(ScrollDirection.DOWN, "Scrolled down.")
+            normalized.contains("scroll left") ->
+                coordinateScroll(ScrollDirection.LEFT, "Scrolled left.")
+            normalized.contains("scroll right") ->
+                coordinateScroll(ScrollDirection.RIGHT, "Scrolled right.")
             normalized.contains("flashlight") ||
                 normalized.contains("torch") ->
                 setTorch(normalized.contains("on") || normalized.contains("enable"))
@@ -45,10 +98,20 @@ class FastPathRouter(private val context: Context) {
                 launchSettings(Settings.ACTION_BLUETOOTH_SETTINGS)
             normalized.contains("brightness") ->
                 launchSettings(Settings.ACTION_DISPLAY_SETTINGS)
+            normalized.contains("hotspot") ||
+                normalized.contains("tether") ->
+                launchSettings(Settings.ACTION_WIRELESS_SETTINGS)
+            normalized.contains("do not disturb") ||
+                normalized.contains("dnd") ->
+                launchSettings(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
             normalized.contains("set alarm") || normalized.contains("alarm at") ->
                 setAlarm(normalized)
             normalized.contains("set timer") || normalized.contains("timer for") ->
                 setTimer(normalized)
+            normalized.matches(Regex("""^(call|dial)\b.*""")) ->
+                dialCommand(normalized)
+            normalized.contains("battery") ->
+                batteryStatus()
             normalized.contains("volume") ->
                 adjustVolumeByCommand(normalized)
             else -> FastPathResult.Unhandled
@@ -153,6 +216,54 @@ class FastPathRouter(private val context: Context) {
             FastPathResult.Executed("Opened $query.", 0)
         } else {
             FastPathResult.Error("No launchable app matched '$query'.")
+        }
+    }
+
+    private fun globalNavigation(action: Int, message: String): FastPathResult =
+        if (ControlAccessibilityService.performGlobalAction(action)) {
+            FastPathResult.Executed(message, 0)
+        } else {
+            FastPathResult.Error("Enable Control X Accessibility to use $message.")
+        }
+
+    private fun coordinateScroll(direction: ScrollDirection, message: String): FastPathResult =
+        if (ControlAccessibilityService.scroll(direction)) {
+            FastPathResult.Executed(message, 0)
+        } else {
+            FastPathResult.Error("Enable Accessibility and keep a scrollable screen visible.")
+        }
+
+    private fun dialCommand(normalized: String): FastPathResult {
+        val digits = Regex("""\b(?:\+?\d[\d\s-]{5,}\d)\b""")
+            .find(normalized)
+            ?.value
+            ?.filter { it.isDigit() || it == '+' }
+        val phoneUri = digits?.let {
+            Uri.fromParts("tel", it, null)
+        } ?: return FastPathResult.Error(
+            "Say 'call' followed by a number. Contact-name dialing will require confirmation.",
+        )
+        return launch(
+            Intent(Intent.ACTION_DIAL, phoneUri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    private fun batteryStatus(): FastPathResult {
+        val status = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?: return FastPathResult.Error("Battery status is unavailable.")
+        val level = status.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = status.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        val charging = status.getIntExtra(BatteryManager.EXTRA_STATUS, -1) in
+            listOf(BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL)
+        val percent = if (level >= 0 && scale > 0) level * 100 / scale else -1
+        return if (percent >= 0) {
+            FastPathResult.Executed(
+                "Battery is $percent percent${if (charging) " and charging" else ""}.",
+                0,
+            )
+        } else {
+            FastPathResult.Error("Battery percentage is unavailable.")
         }
     }
 
