@@ -37,10 +37,10 @@ jobs:
           gradle-version: 8.7
 
       - name: Run unit tests
-        run: gradle testDebugUnitTest
+        run: gradle -PappVersionCode=${{ github.run_number }} -PappVersionName=0.1.${{ github.run_number }} testDebugUnitTest
 
       - name: Build debug APK
-        run: gradle assembleDebug
+        run: gradle -PappVersionCode=${{ github.run_number }} -PappVersionName=0.1.${{ github.run_number }} assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
