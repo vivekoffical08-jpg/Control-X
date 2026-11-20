@@ -5,6 +5,7 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.controlx.MainActivity
+import com.controlx.overlay.OverlayControllerService
 
 class ControlQuickSettingsTile : TileService() {
     override fun onStartListening() {
@@ -19,10 +20,15 @@ class ControlQuickSettingsTile : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val launchIntent = Intent(this, MainActivity::class.java).apply {
-            action = MainActivity.ACTION_LAUNCH_OVERLAY
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val permissions = com.controlx.platform.PermissionRepository(this).snapshot()
+        if (permissions.overlayGranted && permissions.microphoneGranted) {
+            OverlayControllerService.start(this)
+        } else {
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                action = MainActivity.ACTION_LAUNCH_OVERLAY
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivityAndCollapse(launchIntent)
         }
-        startActivityAndCollapse(launchIntent)
     }
 }

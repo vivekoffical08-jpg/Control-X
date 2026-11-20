@@ -20,8 +20,13 @@ import com.controlx.domain.RequestSource
 import com.controlx.domain.VolumeDirection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.controlx.security.SensitiveActionPolicy
+import com.controlx.security.SensitiveActionDecision
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 
 class FastPathRouter(private val context: Context) {
+    private val sensitiveActionPolicy = SensitiveActionPolicy()
     private val audioManager by lazy {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -30,6 +35,12 @@ class FastPathRouter(private val context: Context) {
     }
 
     suspend fun route(command: String): FastPathResult = withContext(Dispatchers.Default) {
+        when (val sensitive = sensitiveActionPolicy.evaluate(command)) {
+            is SensitiveActionDecision.Blocked -> {
+                return@withContext FastPathResult.Error(sensitive.reason)
+            }
+            SensitiveActionDecision.Allowed -> Unit
+        }
         val started = System.nanoTime()
         val normalized = command.trim().lowercase()
         val result = when {
@@ -68,11 +79,14 @@ class FastPathRouter(private val context: Context) {
                     android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS,
                     "Notifications",
                 )
+            normalized.matches(Regex("""^(search|google|look up|find)\b.*""")) ->
+                searchInternet(normalized)
+            normalized.matches(Regex("""^(play)\b.*""")) ->
+                playMedia(normalized)
+            normalized.matches(Regex("""^(call|dial)\b.*""")) ->
+                dialCommand(normalized)
             normalized.matches(Regex("""^(lock|lock screen)$""")) ->
-                globalNavigation(
-                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
-                    "Screen locked",
-                )
+                lockScreen()
             normalized.contains("screenshot") ||
                 normalized.contains("take screen") ->
                 globalNavigation(
@@ -100,7 +114,7 @@ class FastPathRouter(private val context: Context) {
                 launchSettings(Settings.ACTION_DISPLAY_SETTINGS)
             normalized.contains("hotspot") ||
                 normalized.contains("tether") ->
-                launchSettings(Settings.ACTION_WIRELESS_SETTINGS)
+                launchHotspot(normalized)
             normalized.contains("do not disturb") ||
                 normalized.contains("dnd") ->
                 launchSettings(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
@@ -128,24 +142,7 @@ class FastPathRouter(private val context: Context) {
     }
 
     fun launchApp(query: String): Boolean {
-        val exactIntent = context.packageManager.getLaunchIntentForPackage(query)
-        if (exactIntent != null) {
-            context.startActivity(exactIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            return true
-        }
-
-        val normalized = query.trim().lowercase()
-        val resolved = context.packageManager.getInstalledApplications(0)
-            .firstOrNull { application ->
-                context.packageManager.getApplicationLabel(application)
-                    .toString()
-                    .trim()
-                    .lowercase() == normalized
-            } ?: return false
-        val intent = context.packageManager.getLaunchIntentForPackage(resolved.packageName)
-            ?: return false
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        return true
+        return AppLauncher.launch(context, query)
     }
 
     fun setTorch(enabled: Boolean): FastPathResult {
@@ -219,12 +216,49 @@ class FastPathRouter(private val context: Context) {
         }
     }
 
+    private fun searchInternet(normalized: String): FastPathResult {
+        val query = Regex("""(?i)^(?:search|google|look up|find)(?:\s+(?:for|about|on))?\s+(.+)""")
+            .find(normalized)
+            ?.groupValues
+            ?.get(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return FastPathResult.Error("Say 'search for' followed by a topic.")
+
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return launch(intent, "Opened browser search for '$query'.")
+    }
+
     private fun globalNavigation(action: Int, message: String): FastPathResult =
         if (ControlAccessibilityService.performGlobalAction(action)) {
             FastPathResult.Executed(message, 0)
         } else {
             FastPathResult.Error("Enable Control X Accessibility to use $message.")
         }
+
+    private fun lockScreen(): FastPathResult {
+        val policyManager =
+            context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val component = ComponentName(
+            context,
+            com.controlx.admin.ControlXDeviceAdminReceiver::class.java,
+        )
+        if (policyManager.isAdminActive(component)) {
+            return try {
+                policyManager.lockNow()
+                FastPathResult.Executed("Screen locked through Device Admin.", 0)
+            } catch (error: Exception) {
+                FastPathResult.Error(error.message ?: "Unable to lock the screen.")
+            }
+        }
+        return globalNavigation(
+            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
+            "Screen locked",
+        )
+    }
 
     private fun coordinateScroll(direction: ScrollDirection, message: String): FastPathResult =
         if (ControlAccessibilityService.scroll(direction)) {
@@ -234,19 +268,34 @@ class FastPathRouter(private val context: Context) {
         }
 
     private fun dialCommand(normalized: String): FastPathResult {
-        val digits = Regex("""\b(?:\+?\d[\d\s-]{5,}\d)\b""")
+        val query = Regex("""(?i)^(?:call|dial)\s+(.+)$""")
             .find(normalized)
-            ?.value
-            ?.filter { it.isDigit() || it == '+' }
-        val phoneUri = digits?.let {
-            Uri.fromParts("tel", it, null)
-        } ?: return FastPathResult.Error(
-            "Say 'call' followed by a number. Contact-name dialing will require confirmation.",
-        )
-        return launch(
-            Intent(Intent.ACTION_DIAL, phoneUri)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-        )
+            ?.groupValues
+            ?.get(1)
+            ?.trim()
+            .orEmpty()
+        if (query.isBlank()) {
+            return FastPathResult.Error("Say 'call' or 'dial' followed by a name or number.")
+        }
+        return if (ContactCaller.dial(context, query)) {
+            FastPathResult.Executed("Dialer opened for $query.", 0)
+        } else {
+            FastPathResult.Error("No matching contact or valid phone number found.")
+        }
+    }
+
+    private fun playMedia(normalized: String): FastPathResult {
+        val query = Regex("""(?i)^play\s+(.+)$""")
+            .find(normalized)
+            ?.groupValues
+            ?.get(1)
+            ?.trim()
+            .orEmpty()
+        return if (query.isNotBlank() && MediaPlaybackController.play(context, query)) {
+            FastPathResult.Executed("Opened media search for $query.", 0)
+        } else {
+            FastPathResult.Error("No supported media app or browser could open the request.")
+        }
     }
 
     private fun batteryStatus(): FastPathResult {
@@ -270,11 +319,38 @@ class FastPathRouter(private val context: Context) {
     private fun launchSettings(action: String): FastPathResult =
         launch(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
+    private suspend fun launchHotspot(normalized: String): FastPathResult {
+        if (!ControlAccessibilityService.isActive()) {
+            launchSettings(Settings.ACTION_WIRELESS_SETTINGS)
+            return FastPathResult.Error(
+                "Hotspot Settings opened. Enable Accessibility for automatic toggle.",
+            )
+        }
+        return if (HotspotAutomation.toggle(context)) {
+            FastPathResult.Executed("Hotspot toggle completed.", 0)
+        } else {
+            launchSettings(Settings.ACTION_WIRELESS_SETTINGS)
+            FastPathResult.Error(
+                "Could not find a visible hotspot switch; tethering Settings opened.",
+            )
+        }
+    }
+
     private fun launch(intent: Intent): FastPathResult {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             context.startActivity(intent)
             FastPathResult.Executed("Action dispatched.", 0)
+        } catch (error: Exception) {
+            FastPathResult.Error(error.message ?: "Unable to dispatch action.")
+        }
+    }
+
+    private fun launch(intent: Intent, successMessage: String): FastPathResult {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            context.startActivity(intent)
+            FastPathResult.Executed(successMessage, 0)
         } catch (error: Exception) {
             FastPathResult.Error(error.message ?: "Unable to dispatch action.")
         }

@@ -40,6 +40,8 @@ class AssistantOverlayManager(
     private var latencyView: TextView? = null
     private var stateView: TextView? = null
     private var transcriptInput: EditText? = null
+    private var confirmationBar: LinearLayout? = null
+    private var confirmationText: TextView? = null
     private var keyboardVisible = false
     private val _state = MutableStateFlow(OverlayState.IDLE)
     val state: StateFlow<OverlayState> = _state.asStateFlow()
@@ -47,6 +49,7 @@ class AssistantOverlayManager(
     var onDismissRequested: (() -> Unit)? = null
     var onTranscriptSubmit: ((String) -> Unit)? = null
     var onEmergencyAbort: (() -> Unit)? = null
+    var onAgentActionApproval: ((Boolean) -> Unit)? = null
 
     fun show(): Boolean {
         if (!Settings.canDrawOverlays(appContext) || panel != null) return false
@@ -117,6 +120,28 @@ class AssistantOverlayManager(
                 true
             }
         }
+        val confirmationTextView = TextView(appContext).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val confirmButton = Button(appContext).apply {
+            text = "ALLOW"
+            setOnClickListener { onAgentActionApproval?.invoke(true) }
+        }
+        val cancelButton = Button(appContext).apply {
+            text = "CANCEL"
+            setOnClickListener { onAgentActionApproval?.invoke(false) }
+        }
+        val confirmation = LinearLayout(appContext).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            visibility = View.GONE
+            addView(confirmationTextView)
+            addView(confirmButton)
+            addView(cancelButton)
+        }
 
         val header = LinearLayout(appContext).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -148,6 +173,7 @@ class AssistantOverlayManager(
                 ).apply { setMargins(0, dp(12), 0, dp(10)) },
             )
             addView(input)
+            addView(confirmation)
             setOnClickListener { onEmergencyAbort?.invoke() }
         }
 
@@ -168,8 +194,21 @@ class AssistantOverlayManager(
         latencyView = latency
         stateView = stateBadge
         transcriptInput = input
+        confirmationBar = confirmation
+        confirmationText = confirmationTextView
         setState(OverlayState.LISTENING)
         return true
+    }
+
+    fun requestAgentActionApproval(thought: String) {
+        confirmationText?.text = "Allow action: $thought"
+        confirmationBar?.visibility = View.VISIBLE
+        setState(OverlayState.PARSING)
+    }
+
+    fun clearAgentActionApproval() {
+        confirmationBar?.visibility = View.GONE
+        confirmationText?.text = ""
     }
 
     fun updateTranscript(text: String, latencyMs: Long) {
@@ -200,6 +239,8 @@ class AssistantOverlayManager(
             latencyView = null
             stateView = null
             transcriptInput = null
+            confirmationBar = null
+            confirmationText = null
         }
         scrim?.let {
             windowManager.removeView(it)

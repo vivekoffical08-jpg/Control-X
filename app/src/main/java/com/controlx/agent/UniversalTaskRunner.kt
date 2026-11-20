@@ -7,6 +7,7 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.controlx.domain.AgentAction
 
 class UniversalTaskRunner(
     context: Context,
@@ -15,7 +16,10 @@ class UniversalTaskRunner(
     private val appContext = context.applicationContext
     private val router = FastPathRouter(appContext)
 
-    suspend fun run(goal: String): TaskResult = withContext(Dispatchers.Default) {
+    suspend fun run(
+        goal: String,
+        actionApprover: suspend (AgentAction) -> Boolean = { false },
+    ): TaskResult = withContext(Dispatchers.Default) {
         val service = activeService() ?: return@withContext TaskResult.Error(
             "Enable Control X Accessibility before using screen automation.",
         )
@@ -51,6 +55,7 @@ class UniversalTaskRunner(
             actionExecutor = executor,
             settleMillis = 600,
             onStep = { },
+            actionApprover = actionApprover,
         )
 
         when (result) {

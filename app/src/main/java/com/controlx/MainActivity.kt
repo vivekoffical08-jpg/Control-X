@@ -55,6 +55,7 @@ import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import com.controlx.platform.GroqKeyStore
 import com.controlx.platform.CommandApiClient
+import android.app.admin.DevicePolicyManager
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -69,6 +70,8 @@ class MainActivity : ComponentActivity() {
             writeSettingsGranted = false,
             accessibilityGranted = false,
             batteryOptimizationIgnored = false,
+            digitalAssistantGranted = false,
+            deviceAdminActive = false,
         ),
     )
     private var overlayController: OverlayController? = null
@@ -103,7 +106,9 @@ class MainActivity : ComponentActivity() {
                                 if (permissions.microphoneGranted &&
                                     permissions.overlayGranted
                                 ) {
-                                    runCatching { getOverlayController().show() }
+                                    runCatching {
+                                        com.controlx.overlay.OverlayControllerService.start(this)
+                                    }
                                 }
                             },
                             onClearCrash = {
@@ -147,7 +152,7 @@ class MainActivity : ComponentActivity() {
         if (intent.action != ACTION_LAUNCH_OVERLAY) return
         val snapshot = PermissionRepository(this).snapshot()
         if (snapshot.microphoneGranted && snapshot.overlayGranted) {
-            getOverlayController().show()
+            com.controlx.overlay.OverlayControllerService.start(this)
         }
     }
 
@@ -157,6 +162,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshPermissions()
+        intent?.let(::handleLaunchIntent)
     }
 
     private fun refreshPermissions() {
@@ -284,6 +290,34 @@ private fun PermissionDashboard(
             PermissionRow("Microphone", permissions.microphoneGranted) {
                 permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
             }
+            PermissionRow("Notifications", permissions.notificationsGranted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissionLauncher.launch(
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    )
+                }
+            }
+            PermissionRow("Digital assistant", permissions.digitalAssistantGranted) {
+                val routes = listOf(
+                    Settings.ACTION_VOICE_INPUT_SETTINGS,
+                    "com.android.settings.action.VOICE_INPUT_SETTINGS",
+                    Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS,
+                )
+                val opened = routes.firstNotNullOfOrNull { action ->
+                    runCatching {
+                        context.startActivity(
+                            Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                        true
+                    }.getOrNull()
+                }
+                if (opened != true) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
             PermissionRow("Overlay", permissions.overlayGranted) {
                 context.startActivity(
                     Intent(
@@ -298,12 +332,52 @@ private fun PermissionDashboard(
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             }
-            PermissionRow("Battery exemption", permissions.batteryOptimizationIgnored) {
+            PermissionRow("Write settings", permissions.writeSettingsGranted) {
                 context.startActivity(
-                    Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    Intent(
+                        Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                        Uri.parse("package:${context.packageName}"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             }
+            PermissionRow("Battery exemption", permissions.batteryOptimizationIgnored) {
+                val direct = runCatching {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}"),
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    true
+                }.getOrDefault(false)
+                if (!direct) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            PermissionRow("Device Admin", permissions.deviceAdminActive) {
+                val component = android.content.ComponentName(
+                    context,
+                    com.controlx.admin.ControlXDeviceAdminReceiver::class.java,
+                )
+                val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
+                    putExtra(
+                        DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                        "Control X uses Device Admin only to provide optional screen locking.",
+                    )
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            }
+            Text(
+                "Power-hold activation: open Digital Assistant / Default apps / Assist settings, " +
+                    "then select Control X. Android and OEM menus vary, and 3–4 second power-hold " +
+                    "support is not guaranteed. A normal app cannot intercept the power key.",
+                color = Color(0xFF94A3B8),
+            )
         }
 
         ControlCard(

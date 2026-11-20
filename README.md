@@ -26,7 +26,20 @@ The app provides a **Quick Settings** tile labeled `Control X`. After installati
 3. Drag **Control X** into the active tiles.
 4. Tap the tile to open the overlay and start listening.
 
-A third-party app cannot intercept a three-second power-button press on standard Android. The power key is reserved by Android and the OEM. Supporting that exact gesture requires a custom OEM firmware/integration or a device-owner/system-signed app, neither of which is available through a normal Play Store app.
+Control X also registers Android voice-assistant entry points:
+
+1. Open **Control X**.
+2. Enable **Microphone**, **Overlay**, and **Accessibility**.
+3. Open **Settings > Apps > Default apps > Digital assistant** or the OEM equivalent.
+   Other menu names include **Assistant app**, **Default assistant**, **Assist & voice input**, or **Voice input**.
+4. Select **Control X** and keep any **Use text from screen** or **Screen context** option at the device default unless you explicitly need it.
+5. Android or the OEM can then route `ACTION_ASSIST` and supported voice-hold gestures to Control X.
+
+A normal third-party app cannot directly intercept a 3–4 second power-button press. It works only when Android/OEM Settings routes the power-hold gesture to the selected digital assistant. Menu names, power-hold behavior, lock-screen behavior, and availability vary by phone; there is no guarantee on every Android OEM.
+
+**Battery optimization:** use **Battery exemption > SET UP** for the direct Android battery-exemption prompt. If the OEM blocks that prompt, the app opens the OEM battery optimization list as a fallback.
+
+**Optional Device Admin:** use **Device Admin > SET UP** only if you want `lock` commands to use Android Device Policy instead of Accessibility. Device Admin activation is user-controlled and may require confirmation or an alternate Settings flow by OEM.
 
 The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
 
@@ -34,7 +47,14 @@ The APK is automatically built and uploaded by GitHub Actions after each `main` 
 
 Android Studio is only needed to develop or debug the project:
 
-Control X is being built as a native Kotlin Android application with a deliberately constrained execution model.
+Open the repository in Android Studio or install the Android SDK and run:
+
+```powershell
+gradlew.bat assembleDebug
+gradlew.bat testDebugUnitTest
+```
+
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Current foundation
 
@@ -47,7 +67,12 @@ Control X is being built as a native Kotlin Android application with a deliberat
 - Synchronous kill-switch state and hard blocking for credential, financial, purchase, and destructive command terms.
 - Minimal overlay controller whose bubble click invokes the kill switch; it refuses to show without explicit overlay permission.
 - Public Android fast-path routing for launchable apps, torch, volume, settings panels, alarms, and timers.
+- Browser internet search through commands such as "search for Android 15 features".
+- Native voice recognition binding and foreground overlay hosting.
+- Contact-name dialing, YouTube/Spotify media search, universal app launch, and hotspot Settings automation.
+- Atomic crash reporting and on-screen diagnostics.
 - Streaming `SpeechRecognizer` callback contract with partial and final results.
+- Explicit confirmation is required for every ReAct automation step before it executes.
 - Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.
 - Accessibility click, text, scroll, coordinate gesture, and global-navigation actuator.
 - Groq JSON-object ReAct planning contract with 10-step loop limits and fingerprint loop detection.

@@ -7,4 +7,6 @@ data class PermissionSnapshot(
     val writeSettingsGranted: Boolean,
     val accessibilityGranted: Boolean = false,
     val batteryOptimizationIgnored: Boolean = false,
+    val digitalAssistantGranted: Boolean = false,
+    val deviceAdminActive: Boolean = false,
 )
