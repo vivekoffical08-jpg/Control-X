@@ -5,7 +5,7 @@ import android.service.voice.VoiceInteractionSession
 import android.service.voice.VoiceInteractionSessionService
 
 class ControlXSessionService : VoiceInteractionSessionService() {
-    override fun onCreateSession(bundle: Bundle?): VoiceInteractionSession =
+    override fun onNewSession(bundle: Bundle?): VoiceInteractionSession =
         ControlXVoiceSession(this)
 }
 

@@ -11,7 +11,7 @@ class ControlXApplication : Application() {
                 val report = buildString {
                     append("Thread: ").append(thread.name).append('\n')
                     append("Exception: ").append(throwable.javaClass.name).append('\n')
-                    append("Message: ").append(throwable.message).append('\n\n')
+                    append("Message: ").append(throwable.message).append('\n').append('\n')
                     append(throwable.stackTraceToString())
                     var cause = throwable.cause
                     while (cause != null) {
