@@ -6,6 +6,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -16,18 +18,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.controlx.accessibility.ControlAccessibilityService
 import com.controlx.domain.FastPathResult
@@ -36,14 +43,25 @@ import com.controlx.platform.PermissionRepository
 import com.controlx.platform.PermissionSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.lifecycle.lifecycleScope
 
 class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_LAUNCH_OVERLAY = "com.controlx.action.LAUNCH_OVERLAY"
     }
 
-    private val repository by lazy { PermissionRepository(this) }
-    private var permissions by mutableStateOf(repository.snapshot())
+    private var permissions by mutableStateOf(
+        PermissionSnapshot(
+            microphoneGranted = false,
+            notificationsGranted = false,
+            overlayGranted = false,
+            writeSettingsGranted = false,
+            accessibilityGranted = false,
+            batteryOptimizationIgnored = false,
+        ),
+    )
     private var overlayController: OverlayController? = null
     private var startupCrash by mutableStateOf(
         (application as? ControlXApplication)
@@ -53,11 +71,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
-            handleLaunchIntent(intent)
-        } catch (_: Exception) {
-            // Startup launch actions are best-effort; the dashboard remains available.
-        }
-        try {
             setContent {
                 MaterialTheme {
                     Surface(modifier = Modifier.fillMaxSize()) {
@@ -65,7 +78,7 @@ class MainActivity : ComponentActivity() {
                             permissions = permissions,
                             startupCrash = startupCrash,
                             onPermissionsChanged = {
-                                runCatching { permissions = repository.snapshot() }
+                                refreshPermissions()
                             },
                             onLaunchOverlay = {
                                 if (permissions.microphoneGranted &&
@@ -73,6 +86,10 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     runCatching { getOverlayController().show() }
                                 }
+                            },
+                            onClearCrash = {
+                                startupCrash = null
+                                ControlXApplication.clearLastCrash(application)
                             },
                         )
                     }
@@ -102,7 +119,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        runCatching { permissions = repository.snapshot() }
+        refreshPermissions()
+    }
+
+    private fun refreshPermissions() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val snapshot = runCatching {
+                PermissionRepository(this@MainActivity).snapshot()
+            }.getOrNull()
+            if (snapshot != null) {
+                withContext(Dispatchers.Main) {
+                    permissions = snapshot
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -117,9 +147,13 @@ private fun PermissionDashboard(
     startupCrash: String?,
     onPermissionsChanged: () -> Unit,
     onLaunchOverlay: () -> Unit,
+    onClearCrash: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        onPermissionsChanged()
+    }
     var diagnosticCommand by mutableStateOf("")
     var diagnosticResult by mutableStateOf("Enter a Fast-Path command.")
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -142,10 +176,47 @@ private fun PermissionDashboard(
         Text("Control X", style = MaterialTheme.typography.headlineMedium)
         Text("Fast-Path System Diagnostics")
         if (!startupCrash.isNullOrBlank()) {
-            Text(
-                text = "Last startup crash:\n$startupCrash",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            Surface(
+                color = Color(0xFF8E1B1B),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 220.dp)
+                    .padding(0.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 220.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp),
+                ) {
+                    Text(
+                        text = "CRASH RECOVERY",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = startupCrash,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                val clipboard =
+                                    context.getSystemService(ClipboardManager::class.java)
+                                clipboard?.setPrimaryClip(
+                                    ClipData.newPlainText("Control X crash log", startupCrash),
+                                )
+                            },
+                        ) {
+                            Text("COPY CRASH LOG")
+                        }
+                        Button(onClick = onClearCrash) {
+                            Text("CLEAR")
+                        }
+                    }
+                }
+            }
         }
 
         PermissionRow("Microphone", permissions.microphoneGranted) {

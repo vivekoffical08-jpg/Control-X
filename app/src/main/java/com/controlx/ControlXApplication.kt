@@ -8,21 +8,20 @@ class ControlXApplication : Application() {
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
-                getSharedPreferences("controlx_crash", MODE_PRIVATE)
-                    .edit()
-                    .putString(
-                        "last_crash",
-                        buildString {
-                            append(thread.name).append('\n')
-                            append(throwable.javaClass.name).append(": ")
-                            append(throwable.message)
-                            append('\n')
-                            throwable.stackTrace.take(12).forEach { frame ->
-                                append(frame.toString()).append('\n')
-                            }
-                        }
-                    )
-                    .commit()
+                val report = buildString {
+                    append("Thread: ").append(thread.name).append('\n')
+                    append("Exception: ").append(throwable.javaClass.name).append('\n')
+                    append("Message: ").append(throwable.message).append('\n\n')
+                    append(throwable.stackTraceToString())
+                    var cause = throwable.cause
+                    while (cause != null) {
+                        append("\nCaused by: ").append(cause.stackTraceToString())
+                        cause = cause.cause
+                    }
+                }
+                filesDir.mkdirs()
+                java.io.File(filesDir, "last_crash.txt")
+                    .writeText(report, Charsets.UTF_8)
             } catch (_: Exception) {
                 // Preserve the original Android crash handler even if storage fails.
             }
@@ -32,7 +31,15 @@ class ControlXApplication : Application() {
 
     companion object {
         fun readLastCrash(application: Application): String? =
-            application.getSharedPreferences("controlx_crash", MODE_PRIVATE)
-                .getString("last_crash", null)
+            runCatching {
+                java.io.File(application.filesDir, "last_crash.txt")
+                    .takeIf(java.io.File::exists)
+                    ?.readText(Charsets.UTF_8)
+            }.getOrNull()
+
+        fun clearLastCrash(application: Application) =
+            runCatching {
+                java.io.File(application.filesDir, "last_crash.txt").delete()
+            }.getOrElse { false }
     }
 }

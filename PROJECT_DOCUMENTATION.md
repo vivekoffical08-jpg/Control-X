@@ -337,6 +337,12 @@ Future development should proceed in this order:
 - Added `docs/CROSS_PLATFORM_ARCHITECTURE.md` describing platform-neutral core, Android/iOS adapters, iOS limitations, shared safety, and implementation phases.
 - Added platform-neutral Kotlin contracts under `com.controlx.core` for voice, fast path, perception, gesture, brain, and safety ports.
 
+### 2026-11-20 — Assistant Trigger Bootstrap
+
+- Replaced eager permission snapshots with a first-frame Compose UI and deferred background permission refresh.
+- Added persistent `filesDir/last_crash.txt` crash capture and an on-screen red diagnostic card with copy/clear actions.
+- Added Android `VoiceInteractionService`, session service, and `ACTION_ASSIST` fallback activity declarations.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.
