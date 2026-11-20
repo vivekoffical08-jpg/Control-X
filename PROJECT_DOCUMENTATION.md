@@ -298,6 +298,12 @@ Future development should proceed in this order:
 
 - Replaced Kotlin callback method-reference calls in `VoiceInputManager` with explicit lambda forwarding to eliminate a recursive type-inference error found by the GitHub Actions compiler.
 
+### 2026-11-20 — First Public APK Release
+
+- GitHub Actions unit tests and the debug APK build now pass.
+- Published release `v0.1.7` with a downloadable `app-debug.apk` asset.
+- Repository is public so users can access releases directly without Android Studio or repository permissions.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.
