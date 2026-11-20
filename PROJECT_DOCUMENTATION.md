@@ -358,6 +358,12 @@ Future development should proceed in this order:
 - Added `UniversalTaskRunner` for app launch, bounded ReAct execution, UI settle, loop detection, and explicit capability failures.
 - Groq integration remains disabled until an API key is configured by the user.
 
+### 2026-11-21 — Encrypted Groq Configuration
+
+- Added encrypted local Groq API-key storage using AndroidX Security.
+- Added settings load, save, and clear controls.
+- Overlay unhandled commands now enter `UniversalTaskRunner` instead of stopping after Fast-Path mismatch.
+
 ### 2026-11-20
 
 - Created private GitHub repository `vivekoffical08-jpg/Control-X`.

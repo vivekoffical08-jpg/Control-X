@@ -6,6 +6,9 @@ import com.controlx.domain.FastPathResult
 import com.controlx.input.VoiceInputManager
 import com.controlx.router.FastPathRouter
 import com.controlx.security.ExecutionGuard
+import com.controlx.platform.GroqKeyStore
+import com.controlx.agent.UniversalTaskRunner
+import com.controlx.agent.UniversalTaskRunner.TaskResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,6 +26,10 @@ class OverlayController(
     private val manager = AssistantOverlayManager(appContext, executionGuard)
     private val voiceInput by lazy { VoiceInputManager(appContext) }
     private val router = FastPathRouter(appContext)
+    private val groqKeyStore by lazy { GroqKeyStore(appContext) }
+    private val taskRunner by lazy {
+        UniversalTaskRunner(appContext) { groqKeyStore.load() }
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listeningForCompletion = false
 
@@ -120,10 +127,19 @@ class OverlayController(
             }
             FastPathResult.Unhandled -> {
                 manager.setState(OverlayState.PARSING)
-                manager.updateTranscript(
-                    "No Fast-Path match. Ready for Agent Path.",
-                    elapsed,
-                )
+                val agentResult = taskRunner.run(command)
+                when (agentResult) {
+                    is TaskResult.Executed -> {
+                        manager.setState(OverlayState.EXECUTING)
+                        manager.updateTranscript("✓ ${agentResult.message}", elapsed)
+                        delay(800)
+                        dismiss()
+                    }
+                    is TaskResult.Error -> {
+                        manager.setState(OverlayState.PARSING)
+                        manager.updateTranscript("✕ ${agentResult.reason}", elapsed)
+                    }
+                }
             }
             is FastPathResult.Error -> {
                 manager.setState(OverlayState.PARSING)

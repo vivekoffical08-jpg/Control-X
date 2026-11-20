@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.controlx.accessibility.ControlAccessibilityService
 import com.controlx.domain.FastPathResult
@@ -45,6 +46,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
+import com.controlx.platform.GroqKeyStore
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -62,6 +64,7 @@ class MainActivity : ComponentActivity() {
         ),
     )
     private var overlayController: OverlayController? = null
+    private val groqKeyStore by lazy { GroqKeyStore(this) }
     private var startupCrash by mutableStateOf(
         (application as? ControlXApplication)
             ?.let { ControlXApplication.readLastCrash(it) },
@@ -89,6 +92,15 @@ class MainActivity : ComponentActivity() {
                             onClearCrash = {
                                 startupCrash = null
                                 ControlXApplication.clearLastCrash(application)
+                            },
+                            onLoadGroqKey = {
+                                groqKeyStore.load().orEmpty()
+                            },
+                            onSaveGroqKey = { key ->
+                                groqKeyStore.save(key)
+                            },
+                            onClearGroqKey = {
+                                groqKeyStore.clear()
                             },
                         )
                     }
@@ -147,14 +159,22 @@ private fun PermissionDashboard(
     onPermissionsChanged: () -> Unit,
     onLaunchOverlay: () -> Unit,
     onClearCrash: () -> Unit,
+    onLoadGroqKey: () -> String,
+    onSaveGroqKey: (String) -> Boolean,
+    onClearGroqKey: () -> Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         onPermissionsChanged()
+        val loaded = withContext(Dispatchers.IO) { onLoadGroqKey() }
+        groqKey = loaded
+        groqStatus = if (loaded.isBlank()) "Not configured" else "Configured"
     }
     var diagnosticCommand by mutableStateOf("")
     var diagnosticResult by mutableStateOf("Enter a Fast-Path command.")
+    var groqKey by mutableStateOf("")
+    var groqStatus by mutableStateOf("Not configured")
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { onPermissionsChanged() },
@@ -241,6 +261,54 @@ private fun PermissionDashboard(
                 Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
+        }
+
+        Text("GROQ AI: $groqStatus")
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = groqKey,
+            onValueChange = { groqKey = it },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            placeholder = { Text("Groq API key") },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        val saved = onSaveGroqKey(groqKey)
+                        withContext(Dispatchers.Main) {
+                            groqStatus = if (saved && groqKey.isNotBlank()) {
+                                "Configured"
+                            } else {
+                                "Save failed"
+                            }
+                        }
+                    }
+                },
+            ) {
+                Text("SAVE KEY")
+            }
+            Button(
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        val cleared = onClearGroqKey()
+                        withContext(Dispatchers.Main) {
+                            if (cleared) {
+                                groqKey = ""
+                                groqStatus = "Not configured"
+                            }
+                        }
+                    }
+                },
+            ) {
+                Text("CLEAR")
+            }
         }
 
         Button(
