@@ -260,6 +260,9 @@ overlay permission, and process retention.
   general Ignore battery optimization Settings screen.
 - Device Admin is optional and limited by policy to `force-lock`. It is never
   enabled silently, and lock-only fallback through Accessibility remains available.
+- Automatic ad/dialog dismissal is disabled. Financial, banking, payment, checkout,
+  wallet, and credential packages are blocked from ReAct automation; payment gateways
+  are never clicked or completed autonomously.
 
 ## 12. Android and OEM Constraints
 

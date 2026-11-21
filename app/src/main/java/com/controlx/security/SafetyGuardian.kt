@@ -17,11 +17,35 @@ class SafetyGuardian {
         "com.google.android.gms",
     )
 
+    private val protectedPackagePrefixes = listOf(
+        "com.google.android.apps.authenticator",
+        "com.android.settings",
+        "com.android.vending",
+        "com.google.android.gms",
+        "com.phonepe",
+        "net.one97.paytm",
+        "com.google.android.apps.nbu.paisa",
+        "in.amazon.mShop",
+    )
+
+    private val protectedPackageKeywords = listOf(
+        "bank",
+        "upi",
+        "pay",
+        "payment",
+        "wallet",
+        "checkout",
+    )
+
     fun evaluateActionSafety(
         action: AgentAction,
         currentPackage: String,
     ): SafetyVerdict {
-        if (currentPackage in sensitivePackages) return SafetyVerdict.Blocked
+        val normalizedPackage = currentPackage.lowercase()
+        if (currentPackage in sensitivePackages ||
+            protectedPackagePrefixes.any(normalizedPackage::startsWith) ||
+            protectedPackageKeywords.any(normalizedPackage::contains)
+        ) return SafetyVerdict.Blocked
 
         val combined = buildString {
             append(action.thought)

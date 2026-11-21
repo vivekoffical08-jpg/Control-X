@@ -39,4 +39,31 @@ class SecurityPolicyTest {
 
         assertTrue(result is SensitiveActionDecision.Allowed)
     }
+
+    @Test
+    fun paymentGatewayActionsAreBlocked() {
+        val result = SensitiveActionPolicy().evaluate("complete payment checkout")
+
+        assertTrue(result is SensitiveActionDecision.Blocked)
+    }
+
+    @Test
+    fun paymentAndBankingPackagesAreBlocked() {
+        val guardian = SafetyGuardian()
+        val action = com.controlx.domain.AgentAction(
+            thought = "tap continue",
+            action = com.controlx.domain.ActionType.CLICK,
+            targetNodeId = "cx_1",
+            coordinates = null,
+            textInput = null,
+            scrollDirection = null,
+            systemCommand = null,
+            expectedOutcome = "continue",
+        )
+
+        assertTrue(
+            guardian.evaluateActionSafety(action, "net.one97.paytm") ==
+                SafetyVerdict.Blocked,
+        )
+    }
 }

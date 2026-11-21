@@ -41,6 +41,8 @@ A normal third-party app cannot directly intercept a 3–4 second power-button p
 
 **Optional Device Admin:** use **Device Admin > SET UP** only if you want `lock` commands to use Android Device Policy instead of Accessibility. Device Admin activation is user-controlled and may require confirmation or an alternate Settings flow by OEM.
 
+**Payment safety:** Control X does not automatically dismiss dialogs or complete payments. Banking, UPI, wallet, checkout, credential, and purchase flows are blocked from autonomous automation.
+
 The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
 
 ## Developer build
