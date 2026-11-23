@@ -3,6 +3,7 @@ package com.controlx.router
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.app.SearchManager
 
 object MediaPlaybackController {
     fun play(context: Context, query: String): Boolean {
@@ -11,18 +12,9 @@ object MediaPlaybackController {
             .trim()
         if (cleaned.isEmpty()) return false
 
-        val youtube = Intent(
-            Intent.ACTION_SEARCH,
-            Uri.parse("vnd.youtube://search_query=${Uri.encode(cleaned)}"),
-        ).apply {
+        val youtube = Intent(Intent.ACTION_SEARCH).apply {
             setPackage("com.google.android.youtube")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val spotify = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("spotify:search:${Uri.encode(cleaned)}"),
-        ).apply {
-            setPackage("com.spotify.music")
+            putExtra(SearchManager.QUERY, cleaned)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         val browser = Intent(

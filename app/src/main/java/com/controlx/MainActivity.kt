@@ -133,6 +133,19 @@ class MainActivity : ComponentActivity() {
                             onClearApiConfiguration = {
                                 commandApiClient.clearConfiguration()
                             },
+                            onLoadInventoryConfiguration = {
+                                commandApiClient.inventoryUploadEnabled()
+                            },
+                            onSetInventoryUpload = { enabled ->
+                                commandApiClient.setInventoryUploadEnabled(enabled)
+                                enabled
+                            },
+                            onScanInventory = {
+                                commandApiClient.scanInstalledApps().size
+                            },
+                            onSyncInventory = {
+                                commandApiClient.syncAppInventory()
+                            },
                         )
                     }
                 }
@@ -197,6 +210,10 @@ private fun PermissionDashboard(
     onLoadApiConfiguration: () -> CommandApiClient.ApiConfiguration,
     onSaveApiConfiguration: (String, String) -> Boolean,
     onClearApiConfiguration: () -> Boolean,
+    onLoadInventoryConfiguration: () -> Boolean,
+    onSetInventoryUpload: (Boolean) -> Boolean,
+    onScanInventory: () -> Int,
+    onSyncInventory: () -> Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -207,6 +224,8 @@ private fun PermissionDashboard(
     var apiBaseUrl by mutableStateOf("")
     var apiToken by mutableStateOf("")
     var apiStatus by mutableStateOf("Not configured")
+    var inventoryUploadEnabled by mutableStateOf(false)
+    var inventoryStatus by mutableStateOf("Local scan not run")
     LaunchedEffect(Unit) {
         onPermissionsChanged()
         val loaded = withContext(Dispatchers.IO) { onLoadGroqKey() }
@@ -221,6 +240,15 @@ private fun PermissionDashboard(
             "Not configured"
         } else {
             "Configured"
+        }
+        inventoryUploadEnabled = withContext(Dispatchers.IO) {
+            onLoadInventoryConfiguration()
+        }
+        val scanned = withContext(Dispatchers.IO) { onScanInventory() }
+        inventoryStatus = "$scanned apps found locally"
+        if (inventoryUploadEnabled) {
+            val synced = withContext(Dispatchers.IO) { onSyncInventory() }
+            if (synced) inventoryStatus = "$scanned apps inventory uploaded"
         }
     }
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -472,6 +500,63 @@ private fun PermissionDashboard(
                     },
                 ) { Text("CLEAR") }
             }
+        }
+
+        ControlCard(
+            title = "Device app inventory",
+            subtitle = "The app list is scanned locally after launch",
+            status = inventoryStatus,
+        ) {
+            Text(
+                "Package names and app labels are sent to the configured backend only when upload consent is enabled.",
+                color = Color(0xFF94A3B8),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            val updated = onSetInventoryUpload(true)
+                            val count = onScanInventory()
+                            val synced = onSyncInventory()
+                            withContext(Dispatchers.Main) {
+                                inventoryUploadEnabled = updated
+                                inventoryStatus =
+                                    if (synced) "$count apps inventory uploaded"
+                                    else if (updated) "$count apps local; upload not configured"
+                                    else "Upload consent failed"
+                            }
+                        }
+                    },
+                ) { Text(if (inventoryUploadEnabled) "UPLOAD ON" else "ENABLE UPLOAD") }
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            val disabled = onSetInventoryUpload(false)
+                            val count = onScanInventory()
+                            withContext(Dispatchers.Main) {
+                                inventoryUploadEnabled = false
+                                inventoryStatus =
+                                    if (disabled) "$count apps local only" else "Could not update"
+                            }
+                        }
+                    },
+                ) { Text("LOCAL ONLY") }
+            }
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = inventoryUploadEnabled,
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        val synced = onSyncInventory()
+                        withContext(Dispatchers.Main) {
+                            inventoryStatus =
+                                if (synced) "Inventory uploaded" else "Inventory sync failed"
+                        }
+                    }
+                },
+            ) { Text("SYNC NOW") }
         }
 
         Button(

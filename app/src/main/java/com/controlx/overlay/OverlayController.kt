@@ -165,6 +165,33 @@ class OverlayController(
             is FastPathResult.Executed -> {
                 manager.setState(OverlayState.EXECUTING)
                 manager.updateTranscript("✓ ${result.message}", elapsed)
+                if (Regex("""(?i)^play\b""").containsMatchIn(command)) {
+                    manager.updateTranscript(
+                        "✓ ${result.message} Searching and selecting the first result.",
+                        elapsed,
+                    )
+                    val mediaGoal =
+                        "In the currently open YouTube or browser media screen, search for ${
+                            Regex("""(?i)^play\s+(.+)$""")
+                                .find(command)
+                                ?.groupValues
+                                ?.get(1)
+                                ?.trim()
+                                .orEmpty()
+                        }, wait for results, and play the first clearly matching video or track."
+                    val agentResult = taskRunner.run(mediaGoal) { action ->
+                        action.action.name != "TYPE" ||
+                            !action.textInput.orEmpty().contains(
+                                Regex("""(?i)(password|pin|otp|cvv|secret)"""),
+                            )
+                    }
+                    when (agentResult) {
+                        is TaskResult.Executed ->
+                            manager.updateTranscript("✓ Media result selected.", elapsed)
+                        is TaskResult.Error ->
+                            manager.updateTranscript("✕ ${agentResult.reason}", elapsed)
+                    }
+                }
                 delay(800)
                 dismiss()
             }

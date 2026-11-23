@@ -20,6 +20,12 @@ data class CommandHistoryRecord(
     val latencyMs: Long?,
 )
 
+data class AppInventoryRecord(
+    val deviceId: String,
+    val packageName: String,
+    val label: String,
+)
+
 class CommandApiClient(context: Context) {
     private val appContext = context.applicationContext
     private val masterKey by lazy {
@@ -76,6 +82,51 @@ class CommandApiClient(context: Context) {
     fun isConfigured(): Boolean =
         getConfiguration().let { it.baseUrl.isNotBlank() && it.apiToken.isNotBlank() }
 
+    fun scanInstalledApps(): List<AppInventoryRecord> {
+        val packages = appContext.packageManager.getInstalledPackages(0)
+        return packages.mapNotNull { info ->
+            val packageName = info.packageName
+            val label = runCatching {
+                info.applicationInfo?.let {
+                    appContext.packageManager.getApplicationLabel(it).toString()
+                } ?: packageName
+            }.getOrDefault(packageName)
+            if (packageName == appContext.packageName) null
+            else AppInventoryRecord(deviceId, packageName.take(256), label.take(256))
+        }.sortedBy { it.packageName }
+    }
+
+    fun inventoryUploadEnabled(): Boolean =
+        preferences.getBoolean(KEY_INVENTORY_UPLOAD, false)
+
+    fun setInventoryUploadEnabled(enabled: Boolean) {
+        preferences.edit()
+            .putBoolean(KEY_INVENTORY_UPLOAD, enabled)
+            .commit()
+    }
+
+    fun syncAppInventory(): Boolean {
+        if (!isConfigured() || !inventoryUploadEnabled()) return false
+        val configuration = getConfiguration()
+        val inventory = scanInstalledApps()
+        val request = Request.Builder()
+            .url("${configuration.baseUrl}/api/v1/app-inventory")
+            .header("Authorization", "Bearer ${configuration.apiToken}")
+            .header("Content-Type", "application/json")
+            .post(
+                gson.toJson(
+                    mapOf(
+                        "deviceId" to deviceId,
+                        "apps" to inventory,
+                    ),
+                ).toRequestBody("application/json".toMediaType()),
+            )
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { it.isSuccessful }
+        }.getOrElse { false }
+    }
+
     fun saveCommand(
         commandText: String,
         source: String,
@@ -118,5 +169,6 @@ class CommandApiClient(context: Context) {
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_API_TOKEN = "api_token"
+        private const val KEY_INVENTORY_UPLOAD = "inventory_upload"
     }
 }

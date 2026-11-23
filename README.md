@@ -73,6 +73,8 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Native voice recognition binding and foreground overlay hosting.
 - Contact-name dialing, YouTube/Spotify media search, universal app launch, and hotspot Settings automation.
 - Atomic crash reporting and on-screen diagnostics.
+- On first launch, Control X scans installed app labels/packages locally and can upload the inventory to the configured backend only after explicit upload consent.
+- `play <song or video>` searches YouTube and uses the grounded screen agent to select the first matching result when YouTube or the browser exposes accessible results.
 - Streaming `SpeechRecognizer` callback contract with partial and final results.
 - Explicit confirmation is required for every ReAct automation step before it executes.
 - Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.

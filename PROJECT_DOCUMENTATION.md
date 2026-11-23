@@ -263,6 +263,13 @@ overlay permission, and process retention.
 - Automatic ad/dialog dismissal is disabled. Financial, banking, payment, checkout,
   wallet, and credential packages are blocked from ReAct automation; payment gateways
   are never clicked or completed autonomously.
+- Installed app discovery is performed locally at dashboard startup. Package names and
+  labels are sent to `/api/v1/app-inventory` only when upload consent is enabled and
+  the backend/API token are configured.
+- Media playback requests such as `play Humsafar` open the YouTube app with a search
+  query. When accessibility and Groq are available, the grounded ReAct loop waits for
+  results and selects the first clearly matching accessible video. Android/OEM browser
+  and app behavior can limit automatic result selection.
 
 ## 12. Android and OEM Constraints
 
