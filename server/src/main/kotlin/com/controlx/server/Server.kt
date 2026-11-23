@@ -67,6 +67,12 @@ class MysqlAppInventoryRepository(
     fun replace(deviceId: String, apps: List<AppInventoryRecord>) {
         connection().use { connection ->
             connection.prepareStatement(
+                "DELETE FROM device_app_inventory WHERE device_id = ?",
+            ).use { statement ->
+                statement.setString(1, deviceId.take(128))
+                statement.executeUpdate()
+            }
+            connection.prepareStatement(
                 """
                 INSERT INTO device_app_inventory
                     (device_id, package_name, app_label)

@@ -83,17 +83,50 @@ class CommandApiClient(context: Context) {
         getConfiguration().let { it.baseUrl.isNotBlank() && it.apiToken.isNotBlank() }
 
     fun scanInstalledApps(): List<AppInventoryRecord> {
+        val inventoryByPackage = linkedMapOf<String, AppInventoryRecord>()
         val packages = appContext.packageManager.getInstalledPackages(0)
-        return packages.mapNotNull { info ->
+        packages.forEach { info ->
             val packageName = info.packageName
             val label = runCatching {
                 info.applicationInfo?.let {
                     appContext.packageManager.getApplicationLabel(it).toString()
                 } ?: packageName
             }.getOrDefault(packageName)
-            if (packageName == appContext.packageName) null
-            else AppInventoryRecord(deviceId, packageName.take(256), label.take(256))
-        }.sortedBy { it.packageName }
+            if (packageName != appContext.packageName) {
+                inventoryByPackage[packageName] =
+                    AppInventoryRecord(deviceId, packageName.take(256), label.take(256))
+            }
+        }
+
+        val launcherIntent = android.content.Intent(
+            android.content.Intent.ACTION_MAIN,
+        ).addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        val launchers = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            appContext.packageManager.queryIntentActivities(
+                launcherIntent,
+                android.content.pm.PackageManager.ResolveInfoFlags.of(
+                    android.content.pm.PackageManager.MATCH_ALL.toLong(),
+                ),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appContext.packageManager.queryIntentActivities(
+                launcherIntent,
+                android.content.pm.PackageManager.MATCH_ALL,
+            )
+        }
+        launchers.forEach { resolved ->
+            val packageName = resolved.activityInfo?.packageName ?: return@forEach
+            if (packageName == appContext.packageName) return@forEach
+            val label = runCatching {
+                resolved.loadLabel(appContext.packageManager).toString()
+            }.getOrDefault(packageName)
+            inventoryByPackage.putIfAbsent(
+                packageName,
+                AppInventoryRecord(deviceId, packageName.take(256), label.take(256)),
+            )
+        }
+        return inventoryByPackage.values.sortedBy { it.packageName }
     }
 
     fun inventoryUploadEnabled(): Boolean =

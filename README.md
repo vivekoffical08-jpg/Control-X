@@ -74,6 +74,7 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Contact-name dialing, YouTube/Spotify media search, universal app launch, and hotspot Settings automation.
 - Atomic crash reporting and on-screen diagnostics.
 - On first launch, Control X scans installed app labels/packages locally and can upload the inventory to the configured backend only after explicit upload consent.
+- The inventory is an exact device snapshot: it includes all visible installed packages and launcher apps, excludes only Control X itself, sorts by package name, and replaces stale backend rows instead of retaining old entries.
 - `play <song or video>` searches YouTube and uses the grounded screen agent to select the first matching result when YouTube or the browser exposes accessible results.
 - Streaming `SpeechRecognizer` callback contract with partial and final results.
 - Explicit confirmation is required for every ReAct automation step before it executes.

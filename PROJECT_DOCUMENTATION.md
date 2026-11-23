@@ -265,7 +265,9 @@ overlay permission, and process retention.
   are never clicked or completed autonomously.
 - Installed app discovery is performed locally at dashboard startup. Package names and
   labels are sent to `/api/v1/app-inventory` only when upload consent is enabled and
-  the backend/API token are configured.
+  the backend/API token are configured. Discovery merges `getInstalledPackages(0)`
+  with launcher-package results, excludes Control X, and the backend replaces the
+  device's stale inventory rows with one exact snapshot.
 - Media playback requests such as `play Humsafar` open the YouTube app with a search
   query. When accessibility and Groq are available, the grounded ReAct loop waits for
   results and selects the first clearly matching accessible video. Android/OEM browser
