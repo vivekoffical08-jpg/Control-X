@@ -66,4 +66,27 @@ class SecurityPolicyTest {
                 SafetyVerdict.Blocked,
         )
     }
+
+    @Test
+    fun paymentSafeModeTracksSensitiveForegroundPackagesAndDoesNotResumeOnSystemUi() {
+        val monitor = PaymentSafeModeMonitor()
+
+        monitor.onForegroundPackageChanged("net.one97.paytm")
+        assertTrue(monitor.isActive)
+
+        monitor.onForegroundPackageChanged("com.android.systemui")
+        assertTrue(monitor.isActive)
+
+        monitor.onForegroundPackageChanged("com.android.launcher3")
+        assertTrue(!monitor.isActive)
+    }
+
+    @Test
+    fun paymentSafeModeRecognizesBankingPackages() {
+        val monitor = PaymentSafeModeMonitor()
+
+        monitor.onForegroundPackageChanged("com.example.mobilebanking")
+
+        assertTrue(monitor.isActive)
+    }
 }

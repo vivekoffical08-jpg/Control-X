@@ -3,13 +3,22 @@ package com.controlx.overlay
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.controlx.security.PaymentSafeModeMonitor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 class OverlayControllerService : Service() {
     companion object {
@@ -35,11 +44,12 @@ class OverlayControllerService : Service() {
     }
 
     private var controller: OverlayController? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        val notification = buildNotification()
+        val notification = buildNotification(PaymentSafeModeMonitor.shared.isActive)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -48,6 +58,12 @@ class OverlayControllerService : Service() {
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
+        }
+        serviceScope.launch {
+            PaymentSafeModeMonitor.shared.state.collect { state ->
+                getSystemService(NotificationManager::class.java)
+                    .notify(NOTIFICATION_ID, buildNotification(state.active))
+            }
         }
     }
 
@@ -66,6 +82,7 @@ class OverlayControllerService : Service() {
     override fun onDestroy() {
         controller?.destroy()
         controller = null
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -85,12 +102,29 @@ class OverlayControllerService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(paymentSafeMode: Boolean): Notification {
+        val settingsIntent = PendingIntent.getActivity(
+            this,
+            1710,
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val content = if (paymentSafeMode) {
+            "Payment Safe Mode: overlay and automation paused. If blocked, disable Control X in Accessibility settings."
+        } else {
+            "Assistant service active. Use Accessibility settings to pause Control X for payment compatibility."
+        }
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Control X is active")
-            .setContentText("Assistant overlay is available.")
+            .setContentText(content)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(
+                android.R.drawable.ic_menu_manage,
+                "Accessibility settings",
+                settingsIntent,
+            )
             .build()
+    }
 }

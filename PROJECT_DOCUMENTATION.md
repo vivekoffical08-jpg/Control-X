@@ -55,6 +55,7 @@ app/
       FastPathRouter.kt
     security/
       ExecutionGuard.kt
+      PaymentSafeMode.kt
       SafetyGuardian.kt
       SensitiveActionPolicy.kt
 ```
@@ -178,6 +179,16 @@ The shared `ExecutionGuard` provides a stopped/allowed state.
 - Accessibility key-event handling stops execution when Volume Down is pressed.
 - Overlay bubble and assistant panel use the same shared guard.
 - `SafetyGuardian` blocks sensitive packages and credential terms.
+- `PaymentSafeModeMonitor` watches accessibility window-state events and identifies payment/banking
+  apps from known package prefixes and package-name keywords.
+- Entering a detected payment/banking app immediately stops the shared execution guard, clears the
+  screen snapshot, cancels the active command, and removes both overlay windows.
+- The notification links to Android Accessibility Settings. If a provider blocks simply because
+  Control X's service is enabled, the user must disable it there; Android does not let Control X
+  silently hide or re-enable its enabled-service status.
+- Leaving the detected app does not restore the overlay or resume the cancelled task. The user must
+  invoke Control X again. Agent execution checks the safe-mode state before planning and immediately
+  before dispatching actions.
 - Financial, purchase, transfer, and deletion language is classified as biometric approval.
 - `SensitiveActionPolicy` provides command-level hard blocks.
 - Password/PIN/OTP/CVV entry is not implemented.
@@ -186,7 +197,14 @@ The shared `ExecutionGuard` provides a stopped/allowed state.
 
 ### Sensitive package policy
 
-The initial blacklist includes authenticator and credential-related package families. It must be expanded by package and app signature as real device testing identifies sensitive apps.
+Authenticator, credential-related, financial, and protected system package families are blocked.
+Payment Safe Mode detection currently relies on known package prefixes and package-name keywords
+(bank, UPI, pay, payment, wallet, checkout); OEM-specific apps with unrelated package names may not
+be detected automatically. Checkout pages inside a general-purpose browser may also be missed,
+because the monitor uses app package names rather than inspecting website content. Users can use the
+foreground-service notification's Accessibility Settings action and disable Control X manually if
+a payment provider still blocks checkout merely because the service is enabled. Re-enabling
+Accessibility remains an explicit user action.
 
 ## 10. Permissions
 
@@ -217,6 +235,8 @@ The overlay implementation is permission-gated and uses `TYPE_APPLICATION_OVERLA
 - API 31+ render effects provide a background blur where available.
 - Live transcript and latency state can be updated.
 - The panel can trigger the shared kill switch.
+- Detected payment/banking foreground apps cause immediate removal of the panel and scrim. Changing
+  overlay type or flags cannot guarantee compatibility with apps that use obscured-touch checks.
 - A full neon execution aura and production soundwave visualizer are not yet implemented.
 
 ## 12. Assistant Activation and Invocation
@@ -263,6 +283,12 @@ overlay permission, and process retention.
 - Automatic ad/dialog dismissal is disabled. Financial, banking, payment, checkout,
   wallet, and credential packages are blocked from ReAct automation; payment gateways
   are never clicked or completed autonomously.
+- Payment Safe Mode pauses active voice/agent work and removes both overlay windows when a matching
+  payment/banking app becomes foreground. It does not silently disable the Accessibility Service:
+  payment SDKs may still detect the enabled service, so users may need to open Accessibility
+  Settings from the persistent notification and disable Control X themselves. OEM app package
+  naming and foreground event behavior vary; checkout pages inside general-purpose browsers may not
+  be identified, so automatic detection is best-effort, not a guarantee.
 - Installed app discovery is performed locally at dashboard startup. Package names and
   labels are sent to `/api/v1/app-inventory` only when upload consent is enabled and
   the backend/API token are configured. Discovery merges `getInstalledPackages(0)`

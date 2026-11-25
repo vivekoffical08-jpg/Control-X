@@ -9,6 +9,8 @@ import com.controlx.security.SafetyGuardian
 import com.controlx.security.SafetyVerdict
 import com.controlx.security.ExecutionGuard
 import com.controlx.security.GuardResult
+import com.controlx.security.PaymentSafeModeMonitor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 class ReActEngine(
@@ -66,6 +68,9 @@ class ReActEngine(
         var previousFingerprint: String? = null
 
         for (step in 0 until 10) {
+            if (PaymentSafeModeMonitor.shared.isActive) {
+                return LoopResult.Blocked("Payment Safe Mode stopped automation.")
+            }
             if (ExecutionGuard.shared.checkCanContinue() is GuardResult.Blocked) {
                 return LoopResult.Blocked("Execution stopped by the user.")
             }
@@ -75,6 +80,8 @@ class ReActEngine(
 
             val action = try {
                 planNextStep(goal, snapshot, history)
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 return LoopResult.Failed(
                     error.message ?: "The agent could not decide the next action.",
@@ -131,6 +138,11 @@ class ReActEngine(
                 !actionApprover(action)
             ) {
                 return LoopResult.Blocked("The proposed action was not approved.")
+            }
+            if (PaymentSafeModeMonitor.shared.isActive ||
+                ExecutionGuard.shared.checkCanContinue() is GuardResult.Blocked
+            ) {
+                return LoopResult.Blocked("Payment Safe Mode stopped automation.")
             }
             val executed = actionExecutor.execute(action, snapshot)
             if (!executed) {

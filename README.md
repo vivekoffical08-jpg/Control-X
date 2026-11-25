@@ -41,7 +41,7 @@ A normal third-party app cannot directly intercept a 3–4 second power-button p
 
 **Optional Device Admin:** use **Device Admin > SET UP** only if you want `lock` commands to use Android Device Policy instead of Accessibility. Device Admin activation is user-controlled and may require confirmation or an alternate Settings flow by OEM.
 
-**Payment safety:** Control X does not automatically dismiss dialogs or complete payments. Banking, UPI, wallet, checkout, credential, and purchase flows are blocked from autonomous automation.
+**Payment safety:** Control X does not automatically dismiss dialogs or complete payments. When a detected banking/payment app becomes foreground, it cancels active automation, clears the captured screen snapshot, and removes both overlay windows; leaving the app does not automatically resume the task. Detection uses package-name patterns and can miss OEM-specific apps or checkout pages inside a general-purpose browser. Some providers block any enabled Accessibility Service even after the overlay is removed. If that happens, use **Accessibility settings** in Control X's ongoing notification and disable Control X manually; Android does not allow the app to silently disable or re-enable that service.
 
 The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
 

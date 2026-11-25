@@ -5,6 +5,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.KeyEvent
 import com.controlx.security.ExecutionGuard
+import com.controlx.security.PaymentSafeModeMonitor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +36,9 @@ class ControlAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeInstance = this
+        PaymentSafeModeMonitor.shared.onForegroundPackageChanged(
+            rootInActiveWindow?.packageName?.toString(),
+        )
     }
 
     private val _snapshot = MutableStateFlow<AccessibilitySnapshot?>(null)
@@ -50,6 +54,18 @@ class ControlAccessibilityService : AccessibilityService() {
     fun clearScreenNodes() = nodeParser.clear()
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val safeMode = PaymentSafeModeMonitor.shared
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            safeMode.onForegroundPackageChanged(event.packageName?.toString())
+            if (safeMode.isActive) {
+                executionGuard.stop()
+            }
+        }
+        if (safeMode.isActive) {
+            _snapshot.value = null
+            nodeParser.clear()
+            return
+        }
         val root = rootInActiveWindow ?: return
         _snapshot.value = AccessibilitySnapshot(
             packageName = root.packageName?.toString(),
@@ -64,6 +80,7 @@ class ControlAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         if (activeInstance === this) activeInstance = null
+        PaymentSafeModeMonitor.shared.reset()
         super.onDestroy()
     }
 

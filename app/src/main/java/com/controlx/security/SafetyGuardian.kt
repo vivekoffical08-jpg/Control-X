@@ -22,19 +22,6 @@ class SafetyGuardian {
         "com.android.settings",
         "com.android.vending",
         "com.google.android.gms",
-        "com.phonepe",
-        "net.one97.paytm",
-        "com.google.android.apps.nbu.paisa",
-        "in.amazon.mShop",
-    )
-
-    private val protectedPackageKeywords = listOf(
-        "bank",
-        "upi",
-        "pay",
-        "payment",
-        "wallet",
-        "checkout",
     )
 
     fun evaluateActionSafety(
@@ -44,7 +31,7 @@ class SafetyGuardian {
         val normalizedPackage = currentPackage.lowercase()
         if (currentPackage in sensitivePackages ||
             protectedPackagePrefixes.any(normalizedPackage::startsWith) ||
-            protectedPackageKeywords.any(normalizedPackage::contains)
+            PaymentAppPolicy.matches(normalizedPackage)
         ) return SafetyVerdict.Blocked
 
         val combined = buildString {

@@ -9,6 +9,7 @@ import com.controlx.domain.AgentAction
 import com.controlx.domain.ScreenSnapshot
 import com.controlx.security.SafetyGuardian
 import com.controlx.security.SafetyVerdict
+import com.controlx.security.PaymentSafeModeMonitor
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
@@ -21,8 +22,10 @@ class AgentNodeExecutor(
         action: AgentAction,
         snapshot: ScreenSnapshot,
     ): Boolean {
+        if (PaymentSafeModeMonitor.shared.isActive) return false
         val verdict = SafetyGuardian().evaluateActionSafety(action, snapshot.packageName)
         if (verdict != SafetyVerdict.Allowed) return false
+        if (PaymentSafeModeMonitor.shared.isActive) return false
 
         return when (action.action) {
             ActionType.CLICK -> executeClick(action)

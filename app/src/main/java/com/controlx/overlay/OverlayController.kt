@@ -12,8 +12,10 @@ import com.controlx.agent.UniversalTaskRunner
 import com.controlx.agent.UniversalTaskRunner.TaskResult
 import com.controlx.security.SensitiveActionPolicy
 import com.controlx.security.SensitiveActionDecision
+import com.controlx.security.PaymentSafeModeMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -40,12 +42,13 @@ class OverlayController(
     private var listeningForCompletion = false
     private val sensitiveActionPolicy = SensitiveActionPolicy()
     private var pendingAgentConfirmation: CompletableDeferred<Boolean>? = null
+    private var commandJob: Job? = null
 
     init {
         manager.onDismissRequested = { dismiss() }
         manager.onEmergencyAbort = { emergencyAbort() }
         manager.onTranscriptSubmit = { command ->
-            scope.launch { processCommand(command) }
+            submitCommand(command)
         }
         manager.onAgentActionApproval = { approved ->
             pendingAgentConfirmation?.complete(approved)
@@ -56,10 +59,17 @@ class OverlayController(
                 if (stopped) dismissImmediate()
             }
         }
+        scope.launch {
+            PaymentSafeModeMonitor.shared.state.collectLatest { state ->
+                if (state.active) pauseForPayment()
+            }
+        }
     }
 
     fun show(): Boolean {
-        if (!Settings.canDrawOverlays(appContext)) return false
+        if (!Settings.canDrawOverlays(appContext) ||
+            PaymentSafeModeMonitor.shared.isActive
+        ) return false
         executionGuard.reset()
         if (!manager.show()) return false
         startListening()
@@ -95,7 +105,7 @@ class OverlayController(
             onFinal = { text ->
                 scope.launch(Dispatchers.Main.immediate) {
                     manager.updateTranscript(text, 35)
-                    processCommand(text)
+                    submitCommand(text)
                 }
             },
             onError = { error ->
@@ -111,7 +121,20 @@ class OverlayController(
         )
     }
 
+    private fun submitCommand(command: String) {
+        if (PaymentSafeModeMonitor.shared.isActive) {
+            pauseForPayment()
+            return
+        }
+        commandJob?.cancel()
+        commandJob = scope.launch { processCommand(command) }
+    }
+
     private suspend fun processCommand(command: String) {
+        if (PaymentSafeModeMonitor.shared.isActive) {
+            pauseForPayment()
+            return
+        }
         when (val sensitive = sensitiveActionPolicy.evaluate(command)) {
             is SensitiveActionDecision.Blocked -> {
                 listeningForCompletion = false
@@ -231,7 +254,14 @@ class OverlayController(
         listeningForCompletion = false
         voiceInput.stopListening()
         manager.hide()
-        }
+    }
+
+    private fun pauseForPayment() {
+        executionGuard.stop()
+        commandJob?.cancel()
+        pendingAgentConfirmation?.complete(false)
+        dismissImmediate()
+    }
 
     private suspend fun requestAgentActionApproval(action: AgentAction): Boolean {
         pendingAgentConfirmation?.cancel()
