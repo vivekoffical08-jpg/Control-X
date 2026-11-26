@@ -70,6 +70,7 @@ class GroqApiClient(
         val userPrompt = JSONObject().apply {
             put("goal", goal)
             put("packageName", snapshot.packageName)
+            put("activityName", snapshot.activityName)
             put("nodes", nodes)
             put("history", historyJson)
         }.toString()

@@ -28,6 +28,7 @@ data class ScreenSnapshot(
     val packageName: String,
     val timestamp: Long,
     val nodes: List<CleanNode>,
+    val activityName: String? = null,
 )
 
 data class AgentAction(

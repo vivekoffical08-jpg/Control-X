@@ -69,6 +69,10 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Synchronous kill-switch state and hard blocking for credential, financial, purchase, and destructive command terms.
 - Minimal overlay controller whose bubble click invokes the kill switch; it refuses to show without explicit overlay permission.
 - Public Android fast-path routing for launchable apps, torch, volume, settings panels, alarms, and timers.
+- Local app catalog with fuzzy matching and package install/update/removal refreshes; app labels and package names remain on-device unless the separately consented inventory upload is enabled.
+- Optional local contact index after the user grants Contacts permission; ambiguous matches are declined, and matching a contact opens the dialer for user confirmation.
+- Explicit `type`/`write` fast-path text entry only into a focused, editable, non-sensitive field outside protected apps.
+- Android media-search routing, explicit Spotify search deep links, and YouTube app/browser fallback for media commands.
 - Browser internet search through commands such as "search for Android 15 features".
 - Native voice recognition binding and foreground overlay hosting.
 - Contact-name dialing, YouTube/Spotify media search, universal app launch, and hotspot Settings automation.
@@ -81,9 +85,13 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.
 - Accessibility click, text, scroll, coordinate gesture, and global-navigation actuator.
 - Groq JSON-object ReAct planning contract with 10-step loop limits and fingerprint loop detection.
+- ReAct click/type actions must target visible compatible nodes from the current snapshot; coordinate clicks must remain inside that node's bounds. The screen is rechecked after approval and again immediately before dispatch.
+- ReAct never sends an unapproved automatic scroll/click as a recovery after a failed action or unchanged screen.
 - Bottom assistant overlay surface, latency transcript state, and execution-state styling.
 - Agent proposals are never executable without explicit user confirmation.
 - No arbitrary accessibility automation, credential entry, arbitrary shell execution, root behavior, hidden APIs, or destructive actions are enabled by this foundation.
+- Automatic global ad/dialog dismissal remains disabled so a heuristic cannot dismiss payment or security dialogs.
+- Device/OEM matching latency is not guaranteed; app/contact matching is local, while Groq reasoning depends on network and service response time.
 
 ## Planned execution paths
 

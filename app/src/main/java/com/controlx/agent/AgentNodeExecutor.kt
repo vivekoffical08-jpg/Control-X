@@ -23,6 +23,12 @@ class AgentNodeExecutor(
         snapshot: ScreenSnapshot,
     ): Boolean {
         if (PaymentSafeModeMonitor.shared.isActive) return false
+        val currentSnapshot = service.captureScreenSnapshot()
+        if (currentSnapshot.packageName != snapshot.packageName ||
+            SnapshotActionValidator.fingerprint(currentSnapshot) !=
+            SnapshotActionValidator.fingerprint(snapshot) ||
+            SnapshotActionValidator.rejectionReason(action, currentSnapshot) != null
+        ) return false
         val verdict = SafetyGuardian().evaluateActionSafety(action, snapshot.packageName)
         if (verdict != SafetyVerdict.Allowed) return false
         if (PaymentSafeModeMonitor.shared.isActive) return false

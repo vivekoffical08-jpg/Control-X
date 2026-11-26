@@ -3,10 +3,14 @@ package com.controlx
 import android.app.Application
 import android.os.Build
 import com.controlx.diagnostics.CrashReporter
+import com.controlx.platform.AppCatalogManager
+import com.controlx.platform.ContactCatalogManager
 
 class ControlXApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppCatalogManager.refreshAsync(this)
+        ContactCatalogManager.refreshAsync(this)
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {

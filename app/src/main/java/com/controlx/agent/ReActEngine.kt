@@ -4,7 +4,6 @@ import com.controlx.domain.ActionRecord
 import com.controlx.domain.AgentAction
 import com.controlx.domain.ScreenSnapshot
 import com.controlx.domain.ActionType
-import com.controlx.domain.ScrollDirection
 import com.controlx.security.SafetyGuardian
 import com.controlx.security.SafetyVerdict
 import com.controlx.security.ExecutionGuard
@@ -49,9 +48,7 @@ class ReActEngine(
     }
 
     fun screenFingerprint(snapshot: ScreenSnapshot): String =
-        snapshot.nodes.joinToString("|") { node ->
-            "${node.id}:${node.text}:${node.contentDescription}:${node.bounds.left},${node.bounds.top},${node.bounds.right},${node.bounds.bottom}"
-        }
+        SnapshotActionValidator.fingerprint(snapshot)
 
     fun maxStepsReached(history: List<ActionRecord>): Boolean = history.size >= 10
 
@@ -117,19 +114,9 @@ class ReActEngine(
                 return LoopResult.Blocked("The agent stopped to avoid a repeated action loop.")
             }
 
-            val validNode = action.targetNodeId?.let { targetId ->
-                snapshot.nodes.any { it.id == targetId }
-            } ?: true
-            if (!validNode) {
-                onStep("Rejected stale node target. Auto-scrolling.")
-                val recovery = action.copy(
-                    action = ActionType.SCROLL,
-                    targetNodeId = null,
-                    scrollDirection = ScrollDirection.DOWN.name,
-                )
-                actionExecutor.execute(recovery, snapshot)
-                delay(settleMillis)
-                continue
+            val groundingError = SnapshotActionValidator.rejectionReason(action, snapshot)
+            if (groundingError != null) {
+                return LoopResult.Blocked(groundingError)
             }
 
             onStep("Step ${step + 1}: ${action.thought}")
@@ -144,15 +131,18 @@ class ReActEngine(
             ) {
                 return LoopResult.Blocked("Payment Safe Mode stopped automation.")
             }
+            val currentSnapshot = screenProvider.capture()
+                ?: return LoopResult.Blocked("The screen snapshot became unavailable.")
+            if (screenFingerprint(currentSnapshot) != fingerprint) {
+                return LoopResult.Blocked(
+                    "The screen changed after approval. Re-run the task against the current screen.",
+                )
+            }
             val executed = actionExecutor.execute(action, snapshot)
             if (!executed) {
-                onStep("Action failed. Retrying with a visible coordinate gesture.")
-                val recovery = action.copy(
-                    action = ActionType.SCROLL,
-                    targetNodeId = null,
-                    scrollDirection = ScrollDirection.DOWN.name,
+                return LoopResult.Failed(
+                    "The action could not be dispatched against the approved screen snapshot.",
                 )
-                actionExecutor.execute(recovery, snapshot)
             }
 
             history += ActionRecord(
@@ -170,14 +160,10 @@ class ReActEngine(
                 previousFingerprint == fingerprint &&
                 history.size >= 2
             ) {
-                onStep("Repeated unchanged screen detected. Auto-scrolling.")
-                val recovery = action.copy(
-                    action = ActionType.SCROLL,
-                    targetNodeId = null,
-                    scrollDirection = ScrollDirection.DOWN.name,
+                onStep("The screen did not change after repeated actions. Ending safely.")
+                return LoopResult.Blocked(
+                    "The screen did not change after repeated actions; no automatic recovery gesture was sent.",
                 )
-                actionExecutor.execute(recovery, settledSnapshot)
-                delay(settleMillis)
             }
             previousFingerprint = settledFingerprint
         }

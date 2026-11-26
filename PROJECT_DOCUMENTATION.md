@@ -49,8 +49,11 @@ app/
       AssistantOverlayManager.kt
       OverlayController.kt
     platform/
+      AppCatalogManager.kt
+      ContactCatalogManager.kt
       PermissionRepository.kt
       PermissionSnapshot.kt
+      PackageChangeReceiver.kt
     router/
       FastPathRouter.kt
     security/
@@ -90,6 +93,11 @@ app/
 - Open Wi-Fi settings panel or Bluetooth/display settings.
 - Dispatch alarm and timer setup intents.
 - Route Home through a public launcher intent.
+- Resolve `open` and `launch` requests against the local app catalog, using exact package names or conservative, ambiguity-aware label matching.
+- Pre-index installed application labels and package names locally at app boot; refresh the catalog when a package is added, removed, or replaced, then resolve launchable apps with conservative fuzzy matching.
+- Optionally pre-index contacts on-device after Contacts permission is granted; ambiguous contact matches are declined and calls open `ACTION_DIAL` so the user confirms before placing a call.
+- Route explicit `type`/`write` commands into the focused editable field only when that node and foreground app pass sensitive-action checks.
+- Route media search through Android's `INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH`, explicit Spotify search deep links when requested, and YouTube app/browser fallback.
 - Route `search`, `google`, `look up`, and `find` commands to a Google browser search URL.
 - Return explicit errors for Back and Recents when no accessibility service is available.
 
@@ -97,6 +105,7 @@ app/
 
 - Some settings panels may vary by Android version and OEM.
 - Third-party apps cannot silently toggle every system setting.
+- Android package visibility and OEM package-manager behavior limit which installed apps can be indexed; callers still need the Contacts runtime permission for contact-name resolution.
 - Airplane mode and protected system settings may require user interaction.
 - Closing arbitrary apps silently is not guaranteed without a privileged API.
 - Alarm and timer actions may still open the system app UI rather than being fully autonomous.
@@ -166,6 +175,7 @@ The request includes only the sanitized current snapshot and bounded action hist
 
 - Maximum task steps: 10.
 - Node targets must exist in the current snapshot.
+- Click and type actions must target a visible compatible node; coordinate clicks are accepted only inside the target node's bounds. Screen package and node fingerprints are checked again after approval and immediately before action dispatch.
 - History and screen fingerprints detect repeated actions.
 - Unknown action names are rejected.
 - Sensitive nodes and credential/destructive instructions are blocked by policy.
@@ -260,6 +270,9 @@ overlay permission, and process retention.
 - ReAct execution is limited to 10 steps and stops on the shared kill switch.
 - Repeated action/screen states are blocked as anti-loop behavior.
 - Every non-FINISH/FAIL ReAct action requires an explicit Allow decision in the overlay.
+- Failed or unchanged ReAct steps terminate safely rather than sending an unapproved fallback gesture.
+- Groq receives the foreground package and reported accessibility window class as activity context. The app supports only its schema-validated atomic action set; unsupported gesture/action names are rejected rather than simulated.
+- No sub-180ms latency is guaranteed: local catalog lookup is the fast path, while speech recognition, Android scheduling, network transport, Groq response time, and OEM behavior are variable.
 - Android voice recognition uses `RecognitionService` with partial/final SpeechRecognizer callbacks.
 - The persistent overlay runs through `OverlayControllerService` with Android foreground-service notification handling.
 - Universal app discovery, contact dialing, YouTube/Spotify media routing, hotspot Settings automation, and safe ad/dialog dismissal are implemented to the extent exposed by Android and OEM APIs.
@@ -309,6 +322,7 @@ overlay permission, and process retention.
 - Samsung, Xiaomi, OnePlus, Oppo, Vivo, Transsion, and Pixel variants differ.
 - Work profiles and device owner policies may prohibit actions.
 - Secure views and banking apps may deliberately hide accessibility content.
+- Automatic global dialog/ad dismissal remains disabled. Although simple labels such as “Skip” or “Close” can look harmless, automatically clicking them across apps could dismiss security, consent, or payment prompts.
 - Coordinate gesture behavior varies by launcher, animation state, and custom widgets.
 - Android cannot guarantee a human-identical universal agent on every app.
 

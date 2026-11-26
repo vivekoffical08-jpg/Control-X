@@ -55,6 +55,7 @@ import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import com.controlx.platform.GroqKeyStore
 import com.controlx.platform.CommandApiClient
+import com.controlx.platform.ContactCatalogManager
 import android.app.admin.DevicePolicyManager
 
 class MainActivity : ComponentActivity() {
@@ -72,6 +73,7 @@ class MainActivity : ComponentActivity() {
             batteryOptimizationIgnored = false,
             digitalAssistantGranted = false,
             deviceAdminActive = false,
+            contactsGranted = false,
         ),
     )
     private var overlayController: OverlayController? = null
@@ -184,6 +186,7 @@ class MainActivity : ComponentActivity() {
                 PermissionRepository(this@MainActivity).snapshot()
             }.getOrNull()
             if (snapshot != null) {
+                ContactCatalogManager.refresh(this@MainActivity)
                 withContext(Dispatchers.Main) {
                     permissions = snapshot
                 }
@@ -325,6 +328,13 @@ private fun PermissionDashboard(
                     )
                 }
             }
+            PermissionRow("Contacts (for calls by name)", permissions.contactsGranted) {
+                permissionLauncher.launch(arrayOf(Manifest.permission.READ_CONTACTS))
+            }
+            Text(
+                "Contact names and numbers are indexed only on this device after permission is granted; calling opens the dialer for you to confirm.",
+                color = Color(0xFF94A3B8),
+            )
             PermissionRow("Digital assistant", permissions.digitalAssistantGranted) {
                 val routes = listOf(
                     Settings.ACTION_VOICE_INPUT_SETTINGS,
