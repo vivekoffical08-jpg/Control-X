@@ -36,17 +36,22 @@ class AgentContractTest {
         ),
     )
 
-    private val dummyBrain = AgentBrainPort { _, _, _ ->
-        AgentAction(
-            thought = "done",
-            action = ActionType.FINISH,
-            targetNodeId = null,
-            coordinates = null,
-            textInput = null,
-            scrollDirection = null,
-            systemCommand = null,
-            expectedOutcome = "complete",
-        )
+    private val dummyBrain = object : AgentBrainPort {
+        override suspend fun planNextStep(
+            goal: String,
+            snapshot: ScreenSnapshot,
+            history: List<ActionRecord>,
+        ): AgentAction =
+            AgentAction(
+                thought = "done",
+                action = ActionType.FINISH,
+                targetNodeId = null,
+                coordinates = null,
+                textInput = null,
+                scrollDirection = null,
+                systemCommand = null,
+                expectedOutcome = "complete",
+            )
     }
 
     @Test
