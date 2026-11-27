@@ -12,6 +12,7 @@ import com.controlx.domain.ScreenSnapshot
 import com.controlx.agent.ReActEngine
 import android.graphics.Rect
 import com.controlx.domain.CleanNode
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 
@@ -64,7 +65,7 @@ class AgentContractTest {
             )
         }
         assertTrue(
-            ReActEngine(GroqApiClient(apiKeyProvider = { "test" }))
+            ReActEngine(NvidiaNimApiClient(apiKeyProvider = { "test" }))
                 .maxStepsReached(history),
         )
     }
@@ -100,7 +101,7 @@ class AgentContractTest {
             ),
         )
         val engine = ReActEngine(
-            GroqApiClient(apiKeyProvider = { "test" }),
+            NvidiaNimApiClient(apiKeyProvider = { "test" }),
         )
         val fingerprint = engine.screenFingerprint(snapshot)
         val history = listOf(
@@ -207,5 +208,42 @@ class AgentContractTest {
                 targetSnapshot,
             ),
         )
+    }
+
+    @Test
+    fun nvidiaNimClientBuildsNemotronUltraPayloadWithThinkingDisabled() {
+        val client = NvidiaNimApiClient(apiKeyProvider = { "nvapi-test" })
+        val screen = ScreenSnapshot(
+            packageName = "com.example",
+            timestamp = 1L,
+            nodes = emptyList(),
+            activityName = "MainActivity",
+        )
+
+        val payload = client.buildRequestJson("open settings", screen, emptyList())
+
+        assertEquals(NvidiaNimApiClient.DEFAULT_MODEL, payload.get("model").asString)
+        val templateKwargs = payload.getAsJsonObject("chat_template_kwargs")
+        assertEquals(false, templateKwargs.get("enable_thinking").asBoolean)
+        assertEquals("json_object", payload.getAsJsonObject("response_format").get("type").asString)
+    }
+
+    @Test
+    fun nvidiaNimClientExtractsJsonFromThinkingAndFenceOutput() {
+        val client = NvidiaNimApiClient(apiKeyProvider = { "nvapi-test" })
+        val raw = """
+            <think>
+            Checking the visible node cx_1 before tapping.
+            </think>
+            ```json
+            {"thought":"Tap Continue","action":"CLICK","targetNodeId":"cx_1","coordinates":null,"textInput":null,"scrollDirection":null,"systemCommand":null,"expectedOutcome":"Moves to next screen"}
+            ```
+        """.trimIndent()
+
+        val action = client.parseResponseContent(raw)
+
+        assertEquals(ActionType.CLICK, action.action)
+        assertEquals("cx_1", action.targetNodeId)
+        assertEquals("Tap Continue", action.thought)
     }
 }

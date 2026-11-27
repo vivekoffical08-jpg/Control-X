@@ -8,7 +8,7 @@ This document explains how to make the public Control X repository look professi
 - Maintainer: `VIVEK KUMAR`
 - GitHub account: `vivekoffical08-jpg`
 - Recommended description: "Native Android voice and screen-control agent with fast-path commands, accessibility automation, and safety-first execution."
-- Recommended topics: `android`, `kotlin`, `jetpack-compose`, `android-accessibility`, `voice-assistant`, `groq`, `mysql`
+- Recommended topics: `android`, `kotlin`, `jetpack-compose`, `android-accessibility`, `voice-assistant`, `nvidia-nim`, `nemotron`, `mysql`
 
 ## GitHub contributor attribution
 

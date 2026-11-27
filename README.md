@@ -84,14 +84,14 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Explicit confirmation is required for every ReAct automation step before it executes.
 - Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.
 - Accessibility click, text, scroll, coordinate gesture, and global-navigation actuator.
-- Groq JSON-object ReAct planning contract with 10-step loop limits and fingerprint loop detection.
+- NVIDIA NIM (`nvidia/nemotron-3-ultra-550b-a55b` default) JSON ReAct planning contract with 10-step loop limits and fingerprint loop detection.
 - ReAct click/type actions must target visible compatible nodes from the current snapshot; coordinate clicks must remain inside that node's bounds. The screen is rechecked after approval and again immediately before dispatch.
 - ReAct never sends an unapproved automatic scroll/click as a recovery after a failed action or unchanged screen.
 - Bottom assistant overlay surface, latency transcript state, and execution-state styling.
 - Agent proposals are never executable without explicit user confirmation.
 - No arbitrary accessibility automation, credential entry, arbitrary shell execution, root behavior, hidden APIs, or destructive actions are enabled by this foundation.
 - Automatic global ad/dialog dismissal remains disabled so a heuristic cannot dismiss payment or security dialogs.
-- Device/OEM matching latency is not guaranteed; app/contact matching is local, while Groq reasoning depends on network and service response time.
+- Device/OEM matching latency is not guaranteed; app/contact matching is local, while NVIDIA NIM Nemotron reasoning depends on network and service response time.
 
 ## Planned execution paths
 

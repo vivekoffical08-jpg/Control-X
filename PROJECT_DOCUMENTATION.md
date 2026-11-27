@@ -9,7 +9,7 @@ This file is the maintained source of truth for Project Control X. It documents 
 Control X is a native Kotlin Android voice and screen-control application. It is designed with two execution paths:
 
 1. **Fast Path:** deterministic parsing and public Android APIs for low-latency commands.
-2. **Agent Path:** accessibility-screen grounding and a bounded Groq ReAct loop for complex UI tasks.
+2. **Agent Path:** accessibility-screen grounding and a bounded NVIDIA NIM (Nemotron) ReAct loop for complex UI tasks.
 
 The implementation is for modern non-rooted Android devices. It does not claim universal access to every app or setting, because Android sandboxing, secure screens, app policy, device policy, OEM process management, and Play platform rules may block actions.
 
@@ -35,8 +35,10 @@ app/
       GestureExecutor.kt
       ScreenNodeParser.kt
     agent/
-      GroqApiClient.kt
+      NvidiaNimApiClient.kt
       ReActEngine.kt
+      SnapshotActionValidator.kt
+      UniversalTaskRunner.kt
     domain/
       ActionModels.kt
       ActionRecord.kt
@@ -51,6 +53,7 @@ app/
     platform/
       AppCatalogManager.kt
       ContactCatalogManager.kt
+      NvidiaKeyStore.kt
       PermissionRepository.kt
       PermissionSnapshot.kt
       PackageChangeReceiver.kt
@@ -152,13 +155,13 @@ The parser maps ephemeral IDs back to current `AccessibilityNodeInfo` instances.
 
 ## 8. ReAct Agent Brain
 
-`GroqApiClient` sends a strict JSON-object request to:
+`NvidiaNimApiClient` sends a strict JSON-object request (`chat_template_kwargs.enable_thinking = false`) to:
 
-`https://api.groq.com/openai/v1/chat/completions`
+`https://integrate.api.nvidia.com/v1/chat/completions`
 
-Default model:
+Default model (editable in the dashboard):
 
-`llama-3.3-70b-versatile`
+`nvidia/nemotron-3-ultra-550b-a55b`
 
 The request includes only the sanitized current snapshot and bounded action history. The response must use:
 
@@ -271,8 +274,8 @@ overlay permission, and process retention.
 - Repeated action/screen states are blocked as anti-loop behavior.
 - Every non-FINISH/FAIL ReAct action requires an explicit Allow decision in the overlay.
 - Failed or unchanged ReAct steps terminate safely rather than sending an unapproved fallback gesture.
-- Groq receives the foreground package and reported accessibility window class as activity context. The app supports only its schema-validated atomic action set; unsupported gesture/action names are rejected rather than simulated.
-- No sub-180ms latency is guaranteed: local catalog lookup is the fast path, while speech recognition, Android scheduling, network transport, Groq response time, and OEM behavior are variable.
+- NVIDIA NIM receives the foreground package and reported accessibility window class as activity context. The app supports only its schema-validated atomic action set; unsupported gesture/action names are rejected rather than simulated.
+- No sub-180ms latency is guaranteed: local catalog lookup is the fast path, while speech recognition, Android scheduling, network transport, NVIDIA NIM response time, and OEM behavior are variable.
 - Android voice recognition uses `RecognitionService` with partial/final SpeechRecognizer callbacks.
 - The persistent overlay runs through `OverlayControllerService` with Android foreground-service notification handling.
 - Universal app discovery, contact dialing, YouTube/Spotify media routing, hotspot Settings automation, and safe ad/dialog dismissal are implemented to the extent exposed by Android and OEM APIs.
@@ -308,7 +311,7 @@ overlay permission, and process retention.
   with launcher-package results, excludes Control X, and the backend replaces the
   device's stale inventory rows with one exact snapshot.
 - Media playback requests such as `play Humsafar` open the YouTube app with a search
-  query. When accessibility and Groq are available, the grounded ReAct loop waits for
+  query. When accessibility and NVIDIA NIM Nemotron are available, the grounded ReAct loop waits for
   results and selects the first clearly matching accessible video. Android/OEM browser
   and app behavior can limit automatic result selection.
 
@@ -345,7 +348,7 @@ overlay permission, and process retention.
 - Real device accessibility and gesture behavior
 - OEM process persistence
 - Voice latency targets
-- Groq network behavior
+- NVIDIA NIM network behavior
 
 Build verification must be performed in Android Studio or a host with JDK 17 and Android SDK 35.
 
@@ -359,13 +362,19 @@ Future development should proceed in this order:
 4. Executable fast-path controller implementations.
 5. Accessibility service snapshot integration.
 6. Gesture executor integration and settle verification.
-7. Groq API configuration and secure key storage.
+7. NVIDIA NIM API configuration and secure key storage.
 8. ReAct loop state machine.
 9. Overlay UI, soundwave visualizer, and execution aura.
 10. Infinix XOS persistence testing.
 11. Biometric approval UI for future explicitly allowed high-risk operations.
 
 ## 15. Change Log
+
+### 2026-11-27 — Replace Groq AI with NVIDIA NIM (Nemotron)
+
+- Replaced `GroqApiClient` and `GroqKeyStore` with `NvidiaNimApiClient` and `NvidiaKeyStore`, routing ReAct agent planning to `https://integrate.api.nvidia.com/v1/chat/completions`.
+- Set default model to `nvidia/nemotron-3-ultra-550b-a55b` (configurable in the **NVIDIA Nemotron AI** dashboard card alongside encrypted `nvapi-...` key storage).
+- Added `chat_template_kwargs.enable_thinking = false`, `response_format` fallback handling, and `<think>...</think>` / code-fence JSON extraction in `NvidiaNimApiClient` using Gson (covered by new unit tests in `AgentContractTest.kt`).
 
 ### 2026-11-27 — PR #2 Integration & Master Spec Tracking
 

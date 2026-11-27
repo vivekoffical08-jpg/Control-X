@@ -13,7 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 class ReActEngine(
-    private val groqApiClient: GroqApiClient,
+    private val llmClient: NvidiaNimApiClient,
 ) {
     fun interface ScreenProvider {
         fun capture(): ScreenSnapshot?
@@ -35,7 +35,7 @@ class ReActEngine(
         snapshot: ScreenSnapshot,
         history: List<ActionRecord>,
     ): AgentAction =
-        groqApiClient.planNextStep(goal, snapshot, history)
+        llmClient.planNextStep(goal, snapshot, history)
 
     fun detectLoop(history: List<ActionRecord>, snapshot: ScreenSnapshot): Boolean {
         if (history.size < 2) return false

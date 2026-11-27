@@ -12,7 +12,7 @@ The Android implementation already provides:
 - Accessibility gesture execution
 - Overlay UI
 - Safety and kill-switch logic
-- Groq ReAct planning
+- NVIDIA NIM Nemotron ReAct planning
 
 iOS support must respect Apple's sandbox, accessibility, automation, and App Store restrictions. A normal iOS app cannot use AccessibilityService-style screen control or dispatch arbitrary gestures across other apps.
 

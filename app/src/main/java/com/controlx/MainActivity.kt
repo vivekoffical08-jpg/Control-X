@@ -53,7 +53,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
-import com.controlx.platform.GroqKeyStore
+import com.controlx.agent.NvidiaNimApiClient
+import com.controlx.platform.NvidiaAiConfig
+import com.controlx.platform.NvidiaKeyStore
 import com.controlx.platform.CommandApiClient
 import com.controlx.platform.ContactCatalogManager
 import android.app.admin.DevicePolicyManager
@@ -77,7 +79,7 @@ class MainActivity : ComponentActivity() {
         ),
     )
     private var overlayController: OverlayController? = null
-    private val groqKeyStore by lazy { GroqKeyStore(this) }
+    private val nvidiaKeyStore by lazy { NvidiaKeyStore(this) }
     private val commandApiClient by lazy { CommandApiClient(this) }
     private var startupCrash by mutableStateOf(
         (application as? ControlXApplication)
@@ -117,14 +119,14 @@ class MainActivity : ComponentActivity() {
                                 startupCrash = null
                                 ControlXApplication.clearLastCrash(application)
                             },
-                            onLoadGroqKey = {
-                                groqKeyStore.load().orEmpty()
+                            onLoadAiConfig = {
+                                nvidiaKeyStore.loadConfig()
                             },
-                            onSaveGroqKey = { key ->
-                                groqKeyStore.save(key)
+                            onSaveAiConfig = { key, model ->
+                                nvidiaKeyStore.save(key, model)
                             },
-                            onClearGroqKey = {
-                                groqKeyStore.clear()
+                            onClearAiConfig = {
+                                nvidiaKeyStore.clear()
                             },
                             onLoadApiConfiguration = {
                                 commandApiClient.getConfiguration()
@@ -207,9 +209,9 @@ private fun PermissionDashboard(
     onPermissionsChanged: () -> Unit,
     onLaunchOverlay: () -> Unit,
     onClearCrash: () -> Unit,
-    onLoadGroqKey: () -> String,
-    onSaveGroqKey: (String) -> Boolean,
-    onClearGroqKey: () -> Boolean,
+    onLoadAiConfig: () -> NvidiaAiConfig,
+    onSaveAiConfig: (String, String) -> Boolean,
+    onClearAiConfig: () -> Boolean,
     onLoadApiConfiguration: () -> CommandApiClient.ApiConfiguration,
     onSaveApiConfiguration: (String, String) -> Boolean,
     onClearApiConfiguration: () -> Boolean,
@@ -222,8 +224,9 @@ private fun PermissionDashboard(
     val scope = rememberCoroutineScope()
     var diagnosticCommand by mutableStateOf("")
     var diagnosticResult by mutableStateOf("Enter a Fast-Path command.")
-    var groqKey by mutableStateOf("")
-    var groqStatus by mutableStateOf("Not configured")
+    var nvidiaKey by mutableStateOf("")
+    var nvidiaModel by mutableStateOf(NvidiaNimApiClient.DEFAULT_MODEL)
+    var nvidiaStatus by mutableStateOf("Not configured")
     var apiBaseUrl by mutableStateOf("")
     var apiToken by mutableStateOf("")
     var apiStatus by mutableStateOf("Not configured")
@@ -231,9 +234,10 @@ private fun PermissionDashboard(
     var inventoryStatus by mutableStateOf("Local scan not run")
     LaunchedEffect(Unit) {
         onPermissionsChanged()
-        val loaded = withContext(Dispatchers.IO) { onLoadGroqKey() }
-        groqKey = loaded
-        groqStatus = if (loaded.isBlank()) "Not configured" else "Configured"
+        val loadedConfig = withContext(Dispatchers.IO) { onLoadAiConfig() }
+        nvidiaKey = loadedConfig.apiKey
+        nvidiaModel = loadedConfig.model
+        nvidiaStatus = if (loadedConfig.apiKey.isBlank()) "Not configured" else "Configured"
         val apiConfiguration = withContext(Dispatchers.IO) {
             onLoadApiConfiguration()
         }
@@ -419,40 +423,49 @@ private fun PermissionDashboard(
         }
 
         ControlCard(
-            title = "Groq AI",
-            subtitle = "Encrypted locally on this phone",
-            status = groqStatus,
+            title = "NVIDIA Nemotron AI",
+            subtitle = "NVIDIA NIM endpoint, encrypted locally",
+            status = nvidiaStatus,
         ) {
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
-                value = groqKey,
-                onValueChange = { groqKey = it },
+                value = nvidiaKey,
+                onValueChange = { nvidiaKey = it },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                label = { Text("API key") },
-                placeholder = { Text("Paste Groq API key") },
+                label = { Text("NVIDIA API key") },
+                placeholder = { Text("Paste NVIDIA NIM key (nvapi-...)") },
+            )
+            OutlinedTextField(
+                modifier = Modifier.fillMaxWidth(),
+                value = nvidiaModel,
+                onValueChange = { nvidiaModel = it },
+                singleLine = true,
+                label = { Text("Nemotron model ID") },
+                placeholder = { Text(NvidiaNimApiClient.DEFAULT_MODEL) },
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     modifier = Modifier.weight(1f),
-                    enabled = groqKey.isNotBlank(),
+                    enabled = nvidiaKey.isNotBlank() && nvidiaModel.isNotBlank(),
                     onClick = {
                         scope.launch(Dispatchers.IO) {
-                            val saved = onSaveGroqKey(groqKey)
+                            val saved = onSaveAiConfig(nvidiaKey, nvidiaModel)
                             withContext(Dispatchers.Main) {
-                                groqStatus = if (saved) "Configured" else "Save failed"
+                                nvidiaStatus = if (saved) "Configured" else "Save failed"
                             }
                         }
                     },
-                ) { Text("SAVE KEY") }
+                ) { Text("SAVE AI CONFIG") }
                 Button(
                     modifier = Modifier.weight(1f),
                     onClick = {
                         scope.launch(Dispatchers.IO) {
-                            if (onClearGroqKey()) {
+                            if (onClearAiConfig()) {
                                 withContext(Dispatchers.Main) {
-                                    groqKey = ""
-                                    groqStatus = "Not configured"
+                                    nvidiaKey = ""
+                                    nvidiaModel = NvidiaNimApiClient.DEFAULT_MODEL
+                                    nvidiaStatus = "Not configured"
                                 }
                             }
                         }

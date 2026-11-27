@@ -6,7 +6,7 @@ import com.controlx.domain.FastPathResult
 import com.controlx.input.VoiceInputManager
 import com.controlx.router.FastPathRouter
 import com.controlx.security.ExecutionGuard
-import com.controlx.platform.GroqKeyStore
+import com.controlx.platform.NvidiaKeyStore
 import com.controlx.platform.CommandApiClient
 import com.controlx.agent.UniversalTaskRunner
 import com.controlx.agent.UniversalTaskRunner.TaskResult
@@ -33,10 +33,14 @@ class OverlayController(
     private val manager = AssistantOverlayManager(appContext, executionGuard)
     private val voiceInput by lazy { VoiceInputManager(appContext) }
     private val router = FastPathRouter(appContext)
-    private val groqKeyStore by lazy { GroqKeyStore(appContext) }
+    private val nvidiaKeyStore by lazy { NvidiaKeyStore(appContext) }
     private val commandApiClient by lazy { CommandApiClient(appContext) }
     private val taskRunner by lazy {
-        UniversalTaskRunner(appContext) { groqKeyStore.load() }
+        UniversalTaskRunner(
+            context = appContext,
+            apiKeyProvider = { nvidiaKeyStore.load() },
+            modelProvider = { nvidiaKeyStore.loadModel() },
+        )
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listeningForCompletion = false

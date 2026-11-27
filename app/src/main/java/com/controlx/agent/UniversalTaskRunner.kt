@@ -12,6 +12,7 @@ import com.controlx.domain.AgentAction
 class UniversalTaskRunner(
     context: Context,
     private val apiKeyProvider: () -> String?,
+    private val modelProvider: () -> String = { NvidiaNimApiClient.DEFAULT_MODEL },
 ) {
     private val appContext = context.applicationContext
     private val router = FastPathRouter(appContext)
@@ -43,8 +44,8 @@ class UniversalTaskRunner(
             delay(700)
         }
 
-        val groqClient = GroqApiClient(apiKeyProvider)
-        val reAct = ReActEngine(groqClient)
+        val nimClient = NvidiaNimApiClient(apiKeyProvider, modelProvider)
+        val reAct = ReActEngine(nimClient)
         val executor = AgentNodeExecutor(service)
 
         val result = reAct.runGoal(
