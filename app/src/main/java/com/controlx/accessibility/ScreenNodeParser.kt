@@ -12,16 +12,29 @@ class ScreenNodeParser {
 
     private val nodeMap = ConcurrentHashMap<String, AccessibilityNodeInfo>()
 
-    fun captureAndSanitize(root: AccessibilityNodeInfo?): ScreenSnapshot {
+    fun captureAndSanitize(
+        root: AccessibilityNodeInfo?,
+        activityName: String? = null,
+    ): ScreenSnapshot {
         nodeMap.clear()
         val nodes = mutableListOf<CleanNode>()
         if (root == null) {
-            return ScreenSnapshot(root?.packageName?.toString().orEmpty(), System.currentTimeMillis(), nodes)
+            return ScreenSnapshot(
+                packageName = "",
+                timestamp = System.currentTimeMillis(),
+                nodes = nodes,
+                activityName = activityName,
+            )
         }
 
         collect(root, nodes)
         val packageName = root.packageName?.toString().orEmpty()
-        return ScreenSnapshot(packageName, System.currentTimeMillis(), nodes)
+        return ScreenSnapshot(
+            packageName = packageName,
+            timestamp = System.currentTimeMillis(),
+            nodes = nodes,
+            activityName = activityName,
+        )
     }
 
     fun resolveNode(nodeId: String): AccessibilityNodeInfo? =

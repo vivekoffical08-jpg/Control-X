@@ -12,6 +12,8 @@ import com.controlx.domain.ScreenSnapshot
 import com.controlx.agent.ReActEngine
 import android.graphics.Rect
 import com.controlx.domain.CleanNode
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 
 class AgentContractTest {
     private val snapshot = AccessibilitySnapshot(
@@ -106,5 +108,104 @@ class AgentContractTest {
             ActionRecord(action, fingerprint, 2L),
         )
         assertTrue(engine.detectLoop(history, snapshot))
+    }
+
+    @Test
+    fun clickRequiresClickableGroundedNodeAndInBoundsCoordinates() {
+        val targetSnapshot = ScreenSnapshot(
+            packageName = "com.example",
+            timestamp = 1L,
+            nodes = listOf(
+                CleanNode(
+                    id = "cx_1",
+                    className = "Button",
+                    text = "Continue",
+                    contentDescription = null,
+                    viewIdResourceName = null,
+                    bounds = Rect().apply {
+                        left = 10
+                        top = 20
+                        right = 110
+                        bottom = 120
+                    },
+                    isClickable = true,
+                    isEditable = false,
+                    isScrollable = false,
+                    isSensitive = false,
+                ),
+            ),
+        )
+        val groundedClick = AgentAction(
+            thought = "Click Continue",
+            action = ActionType.CLICK,
+            targetNodeId = "cx_1",
+            coordinates = listOf(50f, 60f),
+            textInput = null,
+            scrollDirection = null,
+            systemCommand = null,
+            expectedOutcome = "Continue",
+        )
+        val offScreenClick = groundedClick.copy(coordinates = listOf(500f, 600f))
+
+        assertNull(SnapshotActionValidator.rejectionReason(groundedClick, targetSnapshot))
+        assertNotNull(SnapshotActionValidator.rejectionReason(offScreenClick, targetSnapshot))
+        assertNotNull(
+            SnapshotActionValidator.rejectionReason(
+                groundedClick.copy(targetNodeId = null),
+                targetSnapshot,
+            ),
+        )
+    }
+
+    @Test
+    fun typeRequiresEditableNonSensitiveNode() {
+        val targetSnapshot = ScreenSnapshot(
+            packageName = "com.example",
+            timestamp = 1L,
+            nodes = listOf(
+                CleanNode(
+                    id = "cx_1",
+                    className = "EditText",
+                    text = null,
+                    contentDescription = null,
+                    viewIdResourceName = null,
+                    bounds = Rect(0, 0, 200, 80),
+                    isClickable = false,
+                    isEditable = true,
+                    isScrollable = false,
+                    isSensitive = false,
+                ),
+                CleanNode(
+                    id = "cx_2",
+                    className = "EditText",
+                    text = "[REDACTED]",
+                    contentDescription = null,
+                    viewIdResourceName = null,
+                    bounds = Rect(0, 100, 200, 180),
+                    isClickable = false,
+                    isEditable = true,
+                    isScrollable = false,
+                    isSensitive = true,
+                ),
+            ),
+        )
+        val typeAction = AgentAction(
+            thought = "Enter the search",
+            action = ActionType.TYPE,
+            targetNodeId = "cx_1",
+            coordinates = null,
+            textInput = "weather",
+            scrollDirection = null,
+            systemCommand = null,
+            expectedOutcome = "Search",
+        )
+
+        assertNull(SnapshotActionValidator.rejectionReason(typeAction, targetSnapshot))
+        assertNotNull(
+            SnapshotActionValidator.rejectionReason(
+                typeAction.copy(targetNodeId = "cx_2"),
+                targetSnapshot,
+            ),
+        )
     }
 }

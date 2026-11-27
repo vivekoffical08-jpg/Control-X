@@ -16,6 +16,16 @@ data class CommandRecord(
     val latencyMs: Long?,
 )
 
+data class AppInventoryRecord(
+    val packageName: String,
+    val label: String,
+)
+
+data class AppInventoryPayload(
+    val deviceId: String,
+    val apps: List<AppInventoryRecord>,
+)
+
 class MysqlCommandRepository(
     private val jdbcUrl: String,
     private val user: String,
@@ -46,6 +56,42 @@ class MysqlCommandRepository(
     }
 }
 
+class MysqlAppInventoryRepository(
+    private val jdbcUrl: String,
+    private val user: String,
+    private val password: String,
+) {
+    private fun connection(): Connection =
+        DriverManager.getConnection(jdbcUrl, user, password)
+
+    fun replace(deviceId: String, apps: List<AppInventoryRecord>) {
+        connection().use { connection ->
+            connection.prepareStatement(
+                "DELETE FROM device_app_inventory WHERE device_id = ?",
+            ).use { statement ->
+                statement.setString(1, deviceId.take(128))
+                statement.executeUpdate()
+            }
+            connection.prepareStatement(
+                """
+                INSERT INTO device_app_inventory
+                    (device_id, package_name, app_label)
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE app_label = VALUES(app_label)
+                """.trimIndent(),
+            ).use { statement ->
+                for (app in apps) {
+                    statement.setString(1, deviceId.take(128))
+                    statement.setString(2, app.packageName.take(256))
+                    statement.setString(3, app.label.take(256))
+                    statement.addBatch()
+                }
+                if (apps.isNotEmpty()) statement.executeBatch()
+            }
+        }
+    }
+}
+
 fun main() {
     val host = System.getenv("MYSQL_HOST") ?: "127.0.0.1"
     val port = System.getenv("MYSQL_PORT") ?: "3306"
@@ -59,6 +105,8 @@ fun main() {
 
     val jdbcUrl = "jdbc:mysql://$host:$port/$database?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
     val repository = MysqlCommandRepository(jdbcUrl, user, password)
+    val inventoryRepository =
+        MysqlAppInventoryRepository(jdbcUrl, user, password)
     val gson = Gson()
     val server = HttpServer.create(InetSocketAddress(serverPort), 0)
 
@@ -87,6 +135,36 @@ fun main() {
             exchange.sendJson(
                 400,
                 mapOf("error" to (error.message ?: "Invalid command record")),
+            )
+        }
+    }
+    server.createContext("/api/v1/app-inventory") { exchange ->
+        if (!exchange.authorized(apiToken)) {
+            exchange.sendJson(401, mapOf("error" to "Unauthorized"))
+            return@createContext
+        }
+        if (exchange.requestMethod != "POST") {
+            exchange.sendJson(405, mapOf("error" to "Method not allowed"))
+            return@createContext
+        }
+        try {
+            val payload = gson.fromJson(
+                exchange.requestBody.reader(Charsets.UTF_8).readText(),
+                AppInventoryPayload::class.java,
+            )
+            require(payload.deviceId.isNotBlank()) { "deviceId is required" }
+            inventoryRepository.replace(payload.deviceId, payload.apps)
+            exchange.sendJson(
+                201,
+                mapOf(
+                    "status" to "stored",
+                    "count" to payload.apps.size,
+                ),
+            )
+        } catch (error: Exception) {
+            exchange.sendJson(
+                400,
+                mapOf("error" to (error.message ?: "Invalid inventory payload")),
             )
         }
     }

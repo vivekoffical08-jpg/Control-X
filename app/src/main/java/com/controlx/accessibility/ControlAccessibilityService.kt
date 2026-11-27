@@ -5,6 +5,14 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.KeyEvent
 import com.controlx.security.ExecutionGuard
+import com.controlx.security.PaymentSafeModeMonitor
+import com.controlx.security.PaymentAppPolicy
+import com.controlx.security.SafetyGuardian
+import com.controlx.security.SafetyVerdict
+import com.controlx.security.SensitiveActionPolicy
+import com.controlx.security.SensitiveActionDecision
+import com.controlx.domain.ActionType
+import com.controlx.domain.AgentAction
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,29 +43,80 @@ class ControlAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeInstance = this
+        PaymentSafeModeMonitor.shared.onForegroundPackageChanged(
+            rootInActiveWindow?.packageName?.toString(),
+        )
     }
 
     private val _snapshot = MutableStateFlow<AccessibilitySnapshot?>(null)
     val snapshot: StateFlow<AccessibilitySnapshot?> = _snapshot.asStateFlow()
     private val nodeParser = ScreenNodeParser()
+    @Volatile
+    private var foregroundActivityName: String? = null
 
     fun captureScreenSnapshot(): com.controlx.domain.ScreenSnapshot =
-        nodeParser.captureAndSanitize(rootInActiveWindow)
+        nodeParser.captureAndSanitize(rootInActiveWindow, foregroundActivityName)
 
     fun resolveNode(nodeId: String): AccessibilityNodeInfo? =
         nodeParser.resolveNode(nodeId)
 
     fun clearScreenNodes() = nodeParser.clear()
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val root = rootInActiveWindow ?: return
-        if (event?.eventType in setOf(
-                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+    fun typeIntoFocusedNode(text: String): Boolean {
+        if (text.isBlank() || PaymentSafeModeMonitor.shared.isActive) return false
+        if (SensitiveActionPolicy().evaluate(text) is SensitiveActionDecision.Blocked) return false
+        val root = rootInActiveWindow ?: return false
+        val target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+        return try {
+            val packageName = root.packageName?.toString().orEmpty()
+            val verdict = SafetyGuardian().evaluateActionSafety(
+                AgentAction(
+                    thought = "User requested direct text entry.",
+                    action = ActionType.TYPE,
+                    targetNodeId = null,
+                    coordinates = null,
+                    textInput = text,
+                    scrollDirection = null,
+                    systemCommand = null,
+                    expectedOutcome = "Text entered in the focused field.",
+                ),
+                packageName,
             )
-        ) {
-            InterruptionReflex.attemptSafeDismiss(root)
+            if (verdict != SafetyVerdict.Allowed ||
+                PaymentAppPolicy.matches(packageName) ||
+                target.isPassword ||
+                !target.isEditable ||
+                target.text?.contains(
+                    Regex("""(?i)\b(pin|otp|cvv|password|passcode|security code)\b"""),
+                ) == true ||
+                target.contentDescription?.contains(
+                    Regex("""(?i)\b(pin|otp|cvv|password|passcode|security code)\b"""),
+                ) == true
+            ) {
+                false
+            } else {
+                GestureExecutor(this).inputText(target, text)
+            }
+        } finally {
+            target.recycle()
         }
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val safeMode = PaymentSafeModeMonitor.shared
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            safeMode.onForegroundPackageChanged(event.packageName?.toString())
+            foregroundActivityName = event.className?.toString()
+            if (safeMode.isActive) {
+                executionGuard.stop()
+            }
+        }
+        if (safeMode.isActive) {
+            _snapshot.value = null
+            nodeParser.clear()
+            return
+        }
+        val root = rootInActiveWindow ?: return
         _snapshot.value = AccessibilitySnapshot(
             packageName = root.packageName?.toString(),
             nodes = collectNodes(root),
@@ -71,6 +130,7 @@ class ControlAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         if (activeInstance === this) activeInstance = null
+        PaymentSafeModeMonitor.shared.reset()
         super.onDestroy()
     }
 

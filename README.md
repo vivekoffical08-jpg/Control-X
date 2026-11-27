@@ -41,6 +41,8 @@ A normal third-party app cannot directly intercept a 3–4 second power-button p
 
 **Optional Device Admin:** use **Device Admin > SET UP** only if you want `lock` commands to use Android Device Policy instead of Accessibility. Device Admin activation is user-controlled and may require confirmation or an alternate Settings flow by OEM.
 
+**Payment safety:** Control X does not automatically dismiss dialogs or complete payments. When a detected banking/payment app becomes foreground, it cancels active automation, clears the captured screen snapshot, and removes both overlay windows; leaving the app does not automatically resume the task. Detection uses package-name patterns and can miss OEM-specific apps or checkout pages inside a general-purpose browser. Some providers block any enabled Accessibility Service even after the overlay is removed. If that happens, use **Accessibility settings** in Control X's ongoing notification and disable Control X manually; Android does not allow the app to silently disable or re-enable that service.
+
 The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
 
 ## Developer build
@@ -67,18 +69,29 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Synchronous kill-switch state and hard blocking for credential, financial, purchase, and destructive command terms.
 - Minimal overlay controller whose bubble click invokes the kill switch; it refuses to show without explicit overlay permission.
 - Public Android fast-path routing for launchable apps, torch, volume, settings panels, alarms, and timers.
+- Local app catalog with fuzzy matching and package install/update/removal refreshes; app labels and package names remain on-device unless the separately consented inventory upload is enabled.
+- Optional local contact index after the user grants Contacts permission; ambiguous matches are declined, and matching a contact opens the dialer for user confirmation.
+- Explicit `type`/`write` fast-path text entry only into a focused, editable, non-sensitive field outside protected apps.
+- Android media-search routing, explicit Spotify search deep links, and YouTube app/browser fallback for media commands.
 - Browser internet search through commands such as "search for Android 15 features".
 - Native voice recognition binding and foreground overlay hosting.
 - Contact-name dialing, YouTube/Spotify media search, universal app launch, and hotspot Settings automation.
 - Atomic crash reporting and on-screen diagnostics.
+- On first launch, Control X scans installed app labels/packages locally and can upload the inventory to the configured backend only after explicit upload consent.
+- The inventory is an exact device snapshot: it includes all visible installed packages and launcher apps, excludes only Control X itself, sorts by package name, and replaces stale backend rows instead of retaining old entries.
+- `play <song or video>` searches YouTube and uses the grounded screen agent to select the first matching result when YouTube or the browser exposes accessible results.
 - Streaming `SpeechRecognizer` callback contract with partial and final results.
 - Explicit confirmation is required for every ReAct automation step before it executes.
 - Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.
 - Accessibility click, text, scroll, coordinate gesture, and global-navigation actuator.
 - Groq JSON-object ReAct planning contract with 10-step loop limits and fingerprint loop detection.
+- ReAct click/type actions must target visible compatible nodes from the current snapshot; coordinate clicks must remain inside that node's bounds. The screen is rechecked after approval and again immediately before dispatch.
+- ReAct never sends an unapproved automatic scroll/click as a recovery after a failed action or unchanged screen.
 - Bottom assistant overlay surface, latency transcript state, and execution-state styling.
 - Agent proposals are never executable without explicit user confirmation.
 - No arbitrary accessibility automation, credential entry, arbitrary shell execution, root behavior, hidden APIs, or destructive actions are enabled by this foundation.
+- Automatic global ad/dialog dismissal remains disabled so a heuristic cannot dismiss payment or security dialogs.
+- Device/OEM matching latency is not guaranteed; app/contact matching is local, while Groq reasoning depends on network and service response time.
 
 ## Planned execution paths
 

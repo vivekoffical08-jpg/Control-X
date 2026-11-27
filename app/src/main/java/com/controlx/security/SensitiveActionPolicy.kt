@@ -12,6 +12,12 @@ class SensitiveActionPolicy {
         "buy",
         "delete",
         "erase",
+        "pay now",
+        "make payment",
+        "payment",
+        "checkout",
+        "upi",
+        "card number",
     )
 
     fun evaluate(command: String): SensitiveActionDecision {

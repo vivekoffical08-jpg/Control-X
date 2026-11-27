@@ -85,6 +85,8 @@ class FastPathRouter(private val context: Context) {
                 playMedia(normalized)
             normalized.matches(Regex("""^(call|dial)\b.*""")) ->
                 dialCommand(normalized)
+            normalized.matches(Regex("""^(type|write)\b.*""")) ->
+                typeTextCommand(command.trim())
             normalized.matches(Regex("""^(lock|lock screen)$""")) ->
                 lockScreen()
             normalized.contains("screenshot") ||
@@ -104,7 +106,7 @@ class FastPathRouter(private val context: Context) {
             normalized.contains("flashlight") ||
                 normalized.contains("torch") ->
                 setTorch(normalized.contains("on") || normalized.contains("enable"))
-            Regex("""(?i)\bopen\b\s+(.+)""").matches(normalized) ->
+            Regex("""(?i)\b(?:open|launch)\b\s+(.+)""").matches(normalized) ->
                 openAppCommand(normalized)
             normalized.contains("wifi") ->
                 launchSettings(Settings.Panel.ACTION_WIFI)
@@ -207,7 +209,10 @@ class FastPathRouter(private val context: Context) {
     }
 
     private fun openAppCommand(normalized: String): FastPathResult {
-        val query = Regex("""(?i)^open\s+(.+)$""").find(normalized)?.groupValues?.get(1)
+        val query = Regex("""(?i)^(?:open|launch)\s+(.+)$""")
+            .find(normalized)
+            ?.groupValues
+            ?.get(1)
             ?: return FastPathResult.Unhandled
         return if (launchApp(query)) {
             FastPathResult.Executed("Opened $query.", 0)
@@ -277,10 +282,33 @@ class FastPathRouter(private val context: Context) {
         if (query.isBlank()) {
             return FastPathResult.Error("Say 'call' or 'dial' followed by a name or number.")
         }
+        val isPhoneNumber = query.filter { it.isDigit() || it == '+' }.length >= 6
+        if (!isPhoneNumber && !ContactCaller.hasContactsPermission(context)) {
+            return FastPathResult.Error(
+                "Grant Contacts permission to call by name. A phone number can be dialed without it.",
+            )
+        }
         return if (ContactCaller.dial(context, query)) {
             FastPathResult.Executed("Dialer opened for $query.", 0)
         } else {
             FastPathResult.Error("No matching contact or valid phone number found.")
+        }
+    }
+
+    private fun typeTextCommand(command: String): FastPathResult {
+        val text = Regex("""(?i)^(?:type|write)\s+(.+)$""")
+            .find(command)
+            ?.groupValues
+            ?.get(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return FastPathResult.Error("Say 'type' followed by the text to enter.")
+        return if (ControlAccessibilityService.activeInstance()?.typeIntoFocusedNode(text) == true) {
+            FastPathResult.Executed("Text entered in the focused field.", 0)
+        } else {
+            FastPathResult.Error(
+                "Text was not entered. Check Accessibility, the focused field, and sensitive-screen protections.",
+            )
         }
     }
 

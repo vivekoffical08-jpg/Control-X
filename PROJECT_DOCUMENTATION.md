@@ -49,12 +49,16 @@ app/
       AssistantOverlayManager.kt
       OverlayController.kt
     platform/
+      AppCatalogManager.kt
+      ContactCatalogManager.kt
       PermissionRepository.kt
       PermissionSnapshot.kt
+      PackageChangeReceiver.kt
     router/
       FastPathRouter.kt
     security/
       ExecutionGuard.kt
+      PaymentSafeMode.kt
       SafetyGuardian.kt
       SensitiveActionPolicy.kt
 ```
@@ -89,6 +93,11 @@ app/
 - Open Wi-Fi settings panel or Bluetooth/display settings.
 - Dispatch alarm and timer setup intents.
 - Route Home through a public launcher intent.
+- Resolve `open` and `launch` requests against the local app catalog, using exact package names or conservative, ambiguity-aware label matching.
+- Pre-index installed application labels and package names locally at app boot; refresh the catalog when a package is added, removed, or replaced, then resolve launchable apps with conservative fuzzy matching.
+- Optionally pre-index contacts on-device after Contacts permission is granted; ambiguous contact matches are declined and calls open `ACTION_DIAL` so the user confirms before placing a call.
+- Route explicit `type`/`write` commands into the focused editable field only when that node and foreground app pass sensitive-action checks.
+- Route media search through Android's `INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH`, explicit Spotify search deep links when requested, and YouTube app/browser fallback.
 - Route `search`, `google`, `look up`, and `find` commands to a Google browser search URL.
 - Return explicit errors for Back and Recents when no accessibility service is available.
 
@@ -96,6 +105,7 @@ app/
 
 - Some settings panels may vary by Android version and OEM.
 - Third-party apps cannot silently toggle every system setting.
+- Android package visibility and OEM package-manager behavior limit which installed apps can be indexed; callers still need the Contacts runtime permission for contact-name resolution.
 - Airplane mode and protected system settings may require user interaction.
 - Closing arbitrary apps silently is not guaranteed without a privileged API.
 - Alarm and timer actions may still open the system app UI rather than being fully autonomous.
@@ -165,6 +175,7 @@ The request includes only the sanitized current snapshot and bounded action hist
 
 - Maximum task steps: 10.
 - Node targets must exist in the current snapshot.
+- Click and type actions must target a visible compatible node; coordinate clicks are accepted only inside the target node's bounds. Screen package and node fingerprints are checked again after approval and immediately before action dispatch.
 - History and screen fingerprints detect repeated actions.
 - Unknown action names are rejected.
 - Sensitive nodes and credential/destructive instructions are blocked by policy.
@@ -178,6 +189,16 @@ The shared `ExecutionGuard` provides a stopped/allowed state.
 - Accessibility key-event handling stops execution when Volume Down is pressed.
 - Overlay bubble and assistant panel use the same shared guard.
 - `SafetyGuardian` blocks sensitive packages and credential terms.
+- `PaymentSafeModeMonitor` watches accessibility window-state events and identifies payment/banking
+  apps from known package prefixes and package-name keywords.
+- Entering a detected payment/banking app immediately stops the shared execution guard, clears the
+  screen snapshot, cancels the active command, and removes both overlay windows.
+- The notification links to Android Accessibility Settings. If a provider blocks simply because
+  Control X's service is enabled, the user must disable it there; Android does not let Control X
+  silently hide or re-enable its enabled-service status.
+- Leaving the detected app does not restore the overlay or resume the cancelled task. The user must
+  invoke Control X again. Agent execution checks the safe-mode state before planning and immediately
+  before dispatching actions.
 - Financial, purchase, transfer, and deletion language is classified as biometric approval.
 - `SensitiveActionPolicy` provides command-level hard blocks.
 - Password/PIN/OTP/CVV entry is not implemented.
@@ -186,7 +207,14 @@ The shared `ExecutionGuard` provides a stopped/allowed state.
 
 ### Sensitive package policy
 
-The initial blacklist includes authenticator and credential-related package families. It must be expanded by package and app signature as real device testing identifies sensitive apps.
+Authenticator, credential-related, financial, and protected system package families are blocked.
+Payment Safe Mode detection currently relies on known package prefixes and package-name keywords
+(bank, UPI, pay, payment, wallet, checkout); OEM-specific apps with unrelated package names may not
+be detected automatically. Checkout pages inside a general-purpose browser may also be missed,
+because the monitor uses app package names rather than inspecting website content. Users can use the
+foreground-service notification's Accessibility Settings action and disable Control X manually if
+a payment provider still blocks checkout merely because the service is enabled. Re-enabling
+Accessibility remains an explicit user action.
 
 ## 10. Permissions
 
@@ -217,6 +245,8 @@ The overlay implementation is permission-gated and uses `TYPE_APPLICATION_OVERLA
 - API 31+ render effects provide a background blur where available.
 - Live transcript and latency state can be updated.
 - The panel can trigger the shared kill switch.
+- Detected payment/banking foreground apps cause immediate removal of the panel and scrim. Changing
+  overlay type or flags cannot guarantee compatibility with apps that use obscured-touch checks.
 - A full neon execution aura and production soundwave visualizer are not yet implemented.
 
 ## 12. Assistant Activation and Invocation
@@ -240,6 +270,9 @@ overlay permission, and process retention.
 - ReAct execution is limited to 10 steps and stops on the shared kill switch.
 - Repeated action/screen states are blocked as anti-loop behavior.
 - Every non-FINISH/FAIL ReAct action requires an explicit Allow decision in the overlay.
+- Failed or unchanged ReAct steps terminate safely rather than sending an unapproved fallback gesture.
+- Groq receives the foreground package and reported accessibility window class as activity context. The app supports only its schema-validated atomic action set; unsupported gesture/action names are rejected rather than simulated.
+- No sub-180ms latency is guaranteed: local catalog lookup is the fast path, while speech recognition, Android scheduling, network transport, Groq response time, and OEM behavior are variable.
 - Android voice recognition uses `RecognitionService` with partial/final SpeechRecognizer callbacks.
 - The persistent overlay runs through `OverlayControllerService` with Android foreground-service notification handling.
 - Universal app discovery, contact dialing, YouTube/Spotify media routing, hotspot Settings automation, and safe ad/dialog dismissal are implemented to the extent exposed by Android and OEM APIs.
@@ -260,6 +293,24 @@ overlay permission, and process retention.
   general Ignore battery optimization Settings screen.
 - Device Admin is optional and limited by policy to `force-lock`. It is never
   enabled silently, and lock-only fallback through Accessibility remains available.
+- Automatic ad/dialog dismissal is disabled. Financial, banking, payment, checkout,
+  wallet, and credential packages are blocked from ReAct automation; payment gateways
+  are never clicked or completed autonomously.
+- Payment Safe Mode pauses active voice/agent work and removes both overlay windows when a matching
+  payment/banking app becomes foreground. It does not silently disable the Accessibility Service:
+  payment SDKs may still detect the enabled service, so users may need to open Accessibility
+  Settings from the persistent notification and disable Control X themselves. OEM app package
+  naming and foreground event behavior vary; checkout pages inside general-purpose browsers may not
+  be identified, so automatic detection is best-effort, not a guarantee.
+- Installed app discovery is performed locally at dashboard startup. Package names and
+  labels are sent to `/api/v1/app-inventory` only when upload consent is enabled and
+  the backend/API token are configured. Discovery merges `getInstalledPackages(0)`
+  with launcher-package results, excludes Control X, and the backend replaces the
+  device's stale inventory rows with one exact snapshot.
+- Media playback requests such as `play Humsafar` open the YouTube app with a search
+  query. When accessibility and Groq are available, the grounded ReAct loop waits for
+  results and selects the first clearly matching accessible video. Android/OEM browser
+  and app behavior can limit automatic result selection.
 
 ## 12. Android and OEM Constraints
 
@@ -271,6 +322,7 @@ overlay permission, and process retention.
 - Samsung, Xiaomi, OnePlus, Oppo, Vivo, Transsion, and Pixel variants differ.
 - Work profiles and device owner policies may prohibit actions.
 - Secure views and banking apps may deliberately hide accessibility content.
+- Automatic global dialog/ad dismissal remains disabled. Although simple labels such as “Skip” or “Close” can look harmless, automatically clicking them across apps could dismiss security, consent, or payment prompts.
 - Coordinate gesture behavior varies by launcher, animation state, and custom widgets.
 - Android cannot guarantee a human-identical universal agent on every app.
 

@@ -27,10 +27,15 @@ class PermissionRepository(
                 context,
                 Manifest.permission.POST_NOTIFICATIONS,
             ) == PackageManager.PERMISSION_GRANTED
+        val contactsGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CONTACTS,
+        ) == PackageManager.PERMISSION_GRANTED
 
         return PermissionSnapshot(
             microphoneGranted = microphoneGranted,
             notificationsGranted = notificationsGranted,
+            contactsGranted = contactsGranted,
             overlayGranted = Settings.canDrawOverlays(context),
             writeSettingsGranted = Settings.System.canWrite(context),
             accessibilityGranted = isAccessibilityServiceEnabled(),
