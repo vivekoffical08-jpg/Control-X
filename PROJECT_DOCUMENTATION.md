@@ -367,6 +367,12 @@ Future development should proceed in this order:
 
 ## 15. Change Log
 
+### 2026-11-27 — PR #2 Integration & Master Spec Tracking
+
+- Merged `vivekoffical08-jpg-control-x-master-feature` (PR #2) into `main`, bringing Payment Safe Mode (`PaymentSafeMode.kt`), disabled autonomous dialog dismissal (`InterruptionReflex`), local app/contact catalogs (`AppCatalogManager`, `ContactCatalogManager`, `LocalCatalogMatcher`, `PackageChangeReceiver`), backend app-inventory sync (`/api/v1/app-inventory`), fast-path `type`/`write`, and strict `SnapshotActionValidator` post-approval screen verification.
+- Tracked `docs/CONTROL_X_MASTER_FEATURE_LIST.txt` in the repository and added `releases/*.apk` to `.gitignore` so prebuilt binaries are distributed via GitHub Releases rather than tracked in Git history.
+- Updated `README.md` to reference `docs/CONTROL_X_MASTER_FEATURE_LIST.txt` and CI artifact/release naming (`Control-X-v0.1.<build>-debug.apk`).
+
 ### 2026-11-20 — Vertical Slice Integration
 
 - Added real-time permission diagnostics for microphone, overlay, accessibility, and battery optimization.

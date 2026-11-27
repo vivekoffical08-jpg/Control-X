@@ -4,14 +4,14 @@ Maintained by **VIVEK KUMAR** (`@vivekoffical08-jpg`).
 
 For complete architecture, module status, Android/OEM limitations, security boundaries, build instructions, and change history, see [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md).
 
-For the Android/iOS separation strategy and iOS platform constraints, see [docs/CROSS_PLATFORM_ARCHITECTURE.md](docs/CROSS_PLATFORM_ARCHITECTURE.md).
+For the Android/iOS separation strategy and iOS platform constraints, see [docs/CROSS_PLATFORM_ARCHITECTURE.md](docs/CROSS_PLATFORM_ARCHITECTURE.md). For the original master specification reference, see [docs/CONTROL_X_MASTER_FEATURE_LIST.txt](docs/CONTROL_X_MASTER_FEATURE_LIST.txt).
 
 ## Install the Android app
 
 No Android Studio or developer tools are required for users.
 
 1. Open the **[latest GitHub release](https://github.com/vivekoffical08-jpg/Control-X/releases/latest)**.
-2. Download `app-debug.apk`.
+2. Download the attached debug APK (`Control-X-v0.1.<build>-debug.apk`).
 3. On Android, allow installation from the browser/file manager when prompted.
 4. Open Control X and grant Microphone, Overlay, and Accessibility permissions.
 
@@ -43,7 +43,7 @@ A normal third-party app cannot directly intercept a 3–4 second power-button p
 
 **Payment safety:** Control X does not automatically dismiss dialogs or complete payments. When a detected banking/payment app becomes foreground, it cancels active automation, clears the captured screen snapshot, and removes both overlay windows; leaving the app does not automatically resume the task. Detection uses package-name patterns and can miss OEM-specific apps or checkout pages inside a general-purpose browser. Some providers block any enabled Accessibility Service even after the overlay is removed. If that happens, use **Accessibility settings** in Control X's ongoing notification and disable Control X manually; Android does not allow the app to silently disable or re-enable that service.
 
-The APK is automatically built and uploaded by GitHub Actions after each `main` branch update. Maintainer builds can also publish a tagged release with the APK.
+The APK and SHA-256 checksum are automatically built and uploaded as workflow artifacts by GitHub Actions after each `main` branch update. Tagged GitHub Releases can be published manually via `workflow_dispatch` with release publishing enabled.
 
 ## Developer build
 
