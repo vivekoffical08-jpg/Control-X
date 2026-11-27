@@ -1,38 +1,37 @@
 package com.controlx.agent
 
-import com.controlx.accessibility.ControlAccessibilityService
-import com.controlx.domain.FastPathResult
-import com.controlx.router.FastPathRouter
 import android.content.Context
+import com.controlx.accessibility.ControlAccessibilityService
+import com.controlx.domain.AgentAction
+import com.controlx.platform.CommandApiClient
+import com.controlx.router.FastPathRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import com.controlx.domain.AgentAction
 
 class UniversalTaskRunner(
     context: Context,
-    private val apiKeyProvider: () -> String?,
-    private val modelProvider: () -> String = { NvidiaNimApiClient.DEFAULT_MODEL },
+    private val commandApiClient: CommandApiClient = CommandApiClient(context),
 ) {
     private val appContext = context.applicationContext
     private val router = FastPathRouter(appContext)
+    private val backendAiClient = BackendAiClient(commandApiClient)
 
     suspend fun run(
         goal: String,
         actionApprover: suspend (AgentAction) -> Boolean = { false },
     ): TaskResult = withContext(Dispatchers.Default) {
         val service = activeService() ?: return@withContext TaskResult.Error(
-            "Enable Control X Accessibility before using screen automation.",
+            "Enable optional Screen Automation in Control X Settings to interact inside apps (keep OFF for Google Pay).",
         )
 
-        val apiKey = apiKeyProvider()
-        if (apiKey.isNullOrBlank()) {
+        if (!backendAiClient.isConfigured()) {
             return@withContext TaskResult.Error(
-                "AI is not configured yet. Fast-Path commands remain available.",
+                "Connect a Control X backend server to use AI screen automation.",
             )
         }
 
-        val openMatch = Regex("""(?i)^open\s+(.+)$""").find(goal.trim())
+        val openMatch = Regex("""(?i)^(?:open|launch)\s+(.+)$""").find(goal.trim())
         if (openMatch != null) {
             val appName = openMatch.groupValues[1].trim()
             val launched = router.launchApp(appName)
@@ -44,8 +43,7 @@ class UniversalTaskRunner(
             delay(700)
         }
 
-        val nimClient = NvidiaNimApiClient(apiKeyProvider, modelProvider)
-        val reAct = ReActEngine(nimClient)
+        val reAct = ReActEngine(backendAiClient)
         val executor = AgentNodeExecutor(service)
 
         val result = reAct.runGoal(

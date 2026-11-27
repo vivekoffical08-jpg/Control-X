@@ -179,6 +179,14 @@ class FastPathRouter(private val context: Context) {
         )
     }
 
+    fun setExactVolume(stream: Int, percent: Int): FastPathResult {
+        val bounded = percent.coerceIn(0, 100)
+        val max = audioManager.getStreamMaxVolume(stream)
+        val index = (bounded * max / 100.0).toInt()
+        audioManager.setStreamVolume(stream, index, AudioManager.FLAG_SHOW_UI)
+        return FastPathResult.Executed("Volume set to $bounded%.", 0)
+    }
+
     private fun adjustVolumeByCommand(normalized: String): FastPathResult {
         val stream = when {
             normalized.contains("ring") -> AudioManager.STREAM_RING
@@ -193,19 +201,12 @@ class FastPathRouter(private val context: Context) {
         val percentMatch = Regex("""(?i)(?:set|to)\s*(\d{1,3})(?:\s*%|\s*percent)?""")
             .find(normalized)
         val percent = percentMatch?.groupValues?.get(1)?.toIntOrNull()
-        if (percent != null) {
-            val bounded = percent.coerceIn(0, 100)
-            val max = audioManager.getStreamMaxVolume(stream)
-            val index = (bounded * max / 100.0).toInt()
-            audioManager.setStreamVolume(
-                stream,
-                index,
-                AudioManager.FLAG_SHOW_UI,
-            )
+        return if (percent != null) {
+            setExactVolume(stream, percent)
         } else {
             adjustVolume(stream, direction)
+            FastPathResult.Executed("Volume adjusted.", 0)
         }
-        return FastPathResult.Executed("Volume adjusted.", 0)
     }
 
     private fun openAppCommand(normalized: String): FastPathResult {
@@ -221,28 +222,34 @@ class FastPathRouter(private val context: Context) {
         }
     }
 
+    fun searchWebQuery(query: String): FastPathResult {
+        val trimmed = query.trim().takeIf { it.isNotEmpty() }
+            ?: return FastPathResult.Error("Say 'search for' followed by a topic.")
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://www.google.com/search?q=${Uri.encode(trimmed)}"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return launch(intent, "Opened browser search for '$trimmed'.")
+    }
+
     private fun searchInternet(normalized: String): FastPathResult {
         val query = Regex("""(?i)^(?:search|google|look up|find)(?:\s+(?:for|about|on))?\s+(.+)""")
             .find(normalized)
             ?.groupValues
             ?.get(1)
             ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: return FastPathResult.Error("Say 'search for' followed by a topic.")
-
-        val intent = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}"),
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        return launch(intent, "Opened browser search for '$query'.")
+            .orEmpty()
+        return searchWebQuery(query)
     }
 
     private fun globalNavigation(action: Int, message: String): FastPathResult =
         if (ControlAccessibilityService.performGlobalAction(action)) {
             FastPathResult.Executed(message, 0)
         } else {
-            FastPathResult.Error("Enable Control X Accessibility to use $message.")
+            FastPathResult.Error("Enable optional Screen Automation in Settings to use $message.")
         }
+
+    fun lockDeviceScreen(): FastPathResult = lockScreen()
 
     private fun lockScreen(): FastPathResult {
         val policyManager =
@@ -259,18 +266,60 @@ class FastPathRouter(private val context: Context) {
                 FastPathResult.Error(error.message ?: "Unable to lock the screen.")
             }
         }
-        return globalNavigation(
-            android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
-            "Screen locked",
-        )
+        return if (ControlAccessibilityService.isActive()) {
+            globalNavigation(
+                android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN,
+                "Screen locked",
+            )
+        } else {
+            FastPathResult.Error(
+                "Enable Device Admin in Control X Settings to lock screen safely without Accessibility.",
+            )
+        }
     }
 
     private fun coordinateScroll(direction: ScrollDirection, message: String): FastPathResult =
         if (ControlAccessibilityService.scroll(direction)) {
             FastPathResult.Executed(message, 0)
         } else {
-            FastPathResult.Error("Enable Accessibility and keep a scrollable screen visible.")
+            FastPathResult.Error("Enable optional Screen Automation and keep a scrollable screen visible.")
         }
+
+    fun dialQuery(query: String): FastPathResult {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) {
+            return FastPathResult.Error("Say 'call' or 'dial' followed by a name or number.")
+        }
+        val isPhoneNumber = trimmed.filter { it.isDigit() || it == '+' }.length >= 6
+        if (!isPhoneNumber && !ContactCaller.hasContactsPermission(context)) {
+            return FastPathResult.Error(
+                "Grant Contacts permission to call by name. A phone number can be dialed without it.",
+            )
+        }
+        return if (ContactCaller.dial(context, trimmed)) {
+            FastPathResult.Executed("Dialer opened for $trimmed.", 0)
+        } else {
+            FastPathResult.Error("No matching contact or valid phone number found.")
+        }
+    }
+
+    fun draftSms(recipientQuery: String, messageBody: String?): FastPathResult {
+        val trimmed = recipientQuery.trim()
+        if (trimmed.isBlank()) {
+            return FastPathResult.Error("Specify a recipient name or phone number.")
+        }
+        val isPhoneNumber = trimmed.filter { it.isDigit() || it == '+' }.length >= 6
+        if (!isPhoneNumber && !ContactCaller.hasContactsPermission(context)) {
+            return FastPathResult.Error(
+                "Grant Contacts permission to message a contact by name.",
+            )
+        }
+        return if (ContactCaller.draftSms(context, trimmed, messageBody)) {
+            FastPathResult.Executed("SMS draft opened for $trimmed.", 0)
+        } else {
+            FastPathResult.Error("No matching contact or valid phone number found.")
+        }
+    }
 
     private fun dialCommand(normalized: String): FastPathResult {
         val query = Regex("""(?i)^(?:call|dial)\s+(.+)$""")
@@ -279,20 +328,7 @@ class FastPathRouter(private val context: Context) {
             ?.get(1)
             ?.trim()
             .orEmpty()
-        if (query.isBlank()) {
-            return FastPathResult.Error("Say 'call' or 'dial' followed by a name or number.")
-        }
-        val isPhoneNumber = query.filter { it.isDigit() || it == '+' }.length >= 6
-        if (!isPhoneNumber && !ContactCaller.hasContactsPermission(context)) {
-            return FastPathResult.Error(
-                "Grant Contacts permission to call by name. A phone number can be dialed without it.",
-            )
-        }
-        return if (ContactCaller.dial(context, query)) {
-            FastPathResult.Executed("Dialer opened for $query.", 0)
-        } else {
-            FastPathResult.Error("No matching contact or valid phone number found.")
-        }
+        return dialQuery(query)
     }
 
     private fun typeTextCommand(command: String): FastPathResult {
@@ -307,8 +343,17 @@ class FastPathRouter(private val context: Context) {
             FastPathResult.Executed("Text entered in the focused field.", 0)
         } else {
             FastPathResult.Error(
-                "Text was not entered. Check Accessibility, the focused field, and sensitive-screen protections.",
+                "Text was not entered. Check optional Screen Automation, the focused field, and sensitive-screen protections.",
             )
+        }
+    }
+
+    fun playMediaQuery(query: String): FastPathResult {
+        val trimmed = query.trim()
+        return if (trimmed.isNotBlank() && MediaPlaybackController.play(context, trimmed)) {
+            FastPathResult.Executed("Opened media search for $trimmed.", 0)
+        } else {
+            FastPathResult.Error("No supported media app or browser could open the request.")
         }
     }
 
@@ -319,11 +364,7 @@ class FastPathRouter(private val context: Context) {
             ?.get(1)
             ?.trim()
             .orEmpty()
-        return if (query.isNotBlank() && MediaPlaybackController.play(context, query)) {
-            FastPathResult.Executed("Opened media search for $query.", 0)
-        } else {
-            FastPathResult.Error("No supported media app or browser could open the request.")
-        }
+        return playMediaQuery(query)
     }
 
     private fun batteryStatus(): FastPathResult {
@@ -344,23 +385,38 @@ class FastPathRouter(private val context: Context) {
         }
     }
 
+    suspend fun openSettingsTarget(target: String): FastPathResult =
+        when (target.trim().lowercase()) {
+            "wifi", "wi-fi" -> launchSettings(Settings.Panel.ACTION_WIFI)
+            "bluetooth" -> launchSettings(Settings.ACTION_BLUETOOTH_SETTINGS)
+            "display", "brightness" -> launchSettings(Settings.ACTION_DISPLAY_SETTINGS)
+            "hotspot", "tether" -> launchHotspot("hotspot")
+            "dnd", "do not disturb" -> launchSettings(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+            "notifications" -> launchSettings(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            "accessibility" -> launchSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            else -> launchSettings(Settings.ACTION_SETTINGS)
+        }
+
     private fun launchSettings(action: String): FastPathResult =
-        launch(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        launch(
+            Intent(action).apply {
+                if (action == Settings.ACTION_APP_NOTIFICATION_SETTINGS) {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                }
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
 
     private suspend fun launchHotspot(normalized: String): FastPathResult {
         if (!ControlAccessibilityService.isActive()) {
             launchSettings(Settings.ACTION_WIRELESS_SETTINGS)
-            return FastPathResult.Error(
-                "Hotspot Settings opened. Enable Accessibility for automatic toggle.",
-            )
+            return FastPathResult.Executed("Hotspot Settings opened.", 0)
         }
         return if (HotspotAutomation.toggle(context)) {
             FastPathResult.Executed("Hotspot toggle completed.", 0)
         } else {
             launchSettings(Settings.ACTION_WIRELESS_SETTINGS)
-            FastPathResult.Error(
-                "Could not find a visible hotspot switch; tethering Settings opened.",
-            )
+            FastPathResult.Executed("Tethering Settings opened.", 0)
         }
     }
 
@@ -384,10 +440,24 @@ class FastPathRouter(private val context: Context) {
         }
     }
 
+    fun openAlarmAt(hour: Int, minute: Int): FastPathResult {
+        val boundedHour = hour.coerceIn(0, 23)
+        val boundedMinute = minute.coerceIn(0, 59)
+        val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+            putExtra(AlarmClock.EXTRA_HOUR, boundedHour)
+            putExtra(AlarmClock.EXTRA_MINUTES, boundedMinute)
+            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return launch(
+            intent,
+            "Opened alarm setup for %02d:%02d.".format(boundedHour, boundedMinute),
+        )
+    }
+
     private fun setAlarm(command: String): FastPathResult {
         val time = Regex("""(?i)\b([01]?\d|2[0-3]):([0-5]\d)\b""")
             .find(command)
-        val now = java.util.Calendar.getInstance()
         val hour: Int
         val minute: Int
         if (time != null) {
@@ -400,13 +470,17 @@ class FastPathRouter(private val context: Context) {
             hour = parsedHour % 12 + if (words.groupValues[2].equals("pm", true)) 12 else 0
             minute = 0
         }
-        val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
-            putExtra(AlarmClock.EXTRA_HOUR, hour)
-            putExtra(AlarmClock.EXTRA_MINUTES, minute)
+        return openAlarmAt(hour, minute)
+    }
+
+    fun openTimerSeconds(seconds: Long): FastPathResult {
+        if (seconds <= 0) return FastPathResult.Error("Timer duration must be positive.")
+        val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
+            putExtra(AlarmClock.EXTRA_LENGTH, seconds.coerceAtMost(86_400L).toInt())
             putExtra(AlarmClock.EXTRA_SKIP_UI, false)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        return launch(intent)
+        return launch(intent, "Opened timer setup for ${seconds}s.")
     }
 
     private fun setTimer(command: String): FastPathResult {
@@ -415,11 +489,6 @@ class FastPathRouter(private val context: Context) {
         val seconds = minuteMatch?.groupValues?.get(1)?.toLongOrNull()?.times(60)
             ?: secondMatch?.groupValues?.get(1)?.toLongOrNull()
             ?: return FastPathResult.Error("No valid timer duration found.")
-        val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
-            putExtra(AlarmClock.EXTRA_LENGTH, seconds.toInt())
-            putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        return launch(intent)
+        return openTimerSeconds(seconds)
     }
 }

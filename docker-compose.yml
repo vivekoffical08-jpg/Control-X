@@ -10,7 +10,11 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-controlx}
       MYSQL_USER: ${MYSQL_USER:-controlx_app}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
-      CONTROLX_API_TOKEN: ${CONTROLX_API_TOKEN:-change-this-api-token}
+      CONTROLX_API_TOKEN: ${CONTROLX_API_TOKEN:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_MODEL: ${NVIDIA_MODEL:-nvidia/nemotron-3-ultra-550b-a55b}
+      AI_DAILY_QUOTA_PER_DEVICE: ${AI_DAILY_QUOTA_PER_DEVICE:-150}
+      AI_BURST_PER_MINUTE: ${AI_BURST_PER_MINUTE:-20}
       CONTROLX_SERVER_PORT: 8080
     ports:
       - "8080:8080"

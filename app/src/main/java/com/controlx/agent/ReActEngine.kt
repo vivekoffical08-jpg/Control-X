@@ -1,5 +1,6 @@
 package com.controlx.agent
 
+import com.controlx.core.AgentBrainPort
 import com.controlx.domain.ActionRecord
 import com.controlx.domain.AgentAction
 import com.controlx.domain.ScreenSnapshot
@@ -13,7 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 class ReActEngine(
-    private val llmClient: NvidiaNimApiClient,
+    private val brainPort: AgentBrainPort,
 ) {
     fun interface ScreenProvider {
         fun capture(): ScreenSnapshot?
@@ -35,7 +36,7 @@ class ReActEngine(
         snapshot: ScreenSnapshot,
         history: List<ActionRecord>,
     ): AgentAction =
-        llmClient.planNextStep(goal, snapshot, history)
+        brainPort.planNextStep(goal, snapshot, history)
 
     fun detectLoop(history: List<ActionRecord>, snapshot: ScreenSnapshot): Boolean {
         if (history.size < 2) return false

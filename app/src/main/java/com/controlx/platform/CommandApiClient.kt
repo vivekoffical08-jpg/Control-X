@@ -1,9 +1,12 @@
 package com.controlx.platform
 
 import android.content.Context
-import com.google.gson.Gson
+import android.os.Build
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.controlx.BuildConfig
+import com.google.gson.Gson
+import com.google.gson.JsonParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -26,6 +29,13 @@ data class AppInventoryRecord(
     val label: String,
 )
 
+data class AuthorizedHttpResponse(
+    val code: Int,
+    val body: String,
+    val isSuccessful: Boolean,
+    val errorMessage: String? = null,
+)
+
 class CommandApiClient(context: Context) {
     private val appContext = context.applicationContext
     private val masterKey by lazy {
@@ -43,46 +53,211 @@ class CommandApiClient(context: Context) {
         )
     }
     private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
-    private val deviceId = preferences.getString(KEY_DEVICE_ID, null)
-        ?: UUID.randomUUID().toString().also {
-            preferences.edit().putString(KEY_DEVICE_ID, it).apply()
-        }
+    private val authLock = Any()
 
-    fun configure(baseUrl: String, apiToken: String): Boolean {
+    @Volatile
+    private var cachedDeviceId: String? = null
+
+    fun currentDeviceId(): String = synchronized(authLock) {
+        cachedDeviceId?.let { return@synchronized it }
+        val existing = preferences.getString(KEY_DEVICE_ID, null)?.trim()?.takeIf { it.isNotEmpty() }
+        val resolved = existing ?: UUID.randomUUID().toString().also { generated ->
+            preferences.edit().putString(KEY_DEVICE_ID, generated).commit()
+        }
+        cachedDeviceId = resolved
+        resolved
+    }
+
+    fun configure(baseUrl: String, apiToken: String = ""): Boolean =
+        configureServerUrl(baseUrl, apiToken)
+
+    fun configureServerUrl(baseUrl: String, optionalAdminToken: String = ""): Boolean {
         val normalized = baseUrl.trim().trimEnd('/')
-        if (!normalized.startsWith("https://") &&
+        if (normalized.isNotEmpty() &&
+            !normalized.startsWith("https://") &&
             !normalized.startsWith("http://")
         ) {
             return false
         }
-        if (apiToken.trim().isBlank()) return false
-        return preferences.edit()
-            .putString(KEY_BASE_URL, normalized)
-            .putString(KEY_API_TOKEN, apiToken.trim())
-            .commit()
+        val previousUrl = getEffectiveBaseUrl()
+        val editor = preferences.edit()
+        if (normalized.isEmpty()) {
+            editor.remove(KEY_BASE_URL)
+        } else {
+            editor.putString(KEY_BASE_URL, normalized)
+        }
+        if (optionalAdminToken.trim().isNotEmpty()) {
+            editor.putString(KEY_API_TOKEN, optionalAdminToken.trim())
+        } else {
+            editor.remove(KEY_API_TOKEN)
+        }
+        if (normalized != previousUrl) {
+            editor.remove(KEY_DEVICE_TOKEN)
+        }
+        return editor.commit()
     }
 
     fun clearConfiguration(): Boolean =
-        preferences.edit()
-            .remove(KEY_BASE_URL)
-            .remove(KEY_API_TOKEN)
-            .commit()
+        synchronized(authLock) {
+            cachedDeviceId = null
+            preferences.edit()
+                .remove(KEY_BASE_URL)
+                .remove(KEY_API_TOKEN)
+                .remove(KEY_DEVICE_TOKEN)
+                .commit()
+        }
+
+    fun getEffectiveBaseUrl(): String {
+        val saved = preferences.getString(KEY_BASE_URL, null)?.trim()?.trimEnd('/').orEmpty()
+        if (saved.isNotEmpty()) return saved
+        return BuildConfig.DEFAULT_BACKEND_URL.trim().trimEnd('/')
+    }
+
+    fun hasDeviceToken(): Boolean =
+        !preferences.getString(KEY_DEVICE_TOKEN, null).isNullOrBlank() ||
+            !preferences.getString(KEY_API_TOKEN, null).isNullOrBlank()
 
     fun getConfiguration(): ApiConfiguration =
         ApiConfiguration(
-            baseUrl = preferences.getString(KEY_BASE_URL, "").orEmpty(),
-            apiToken = preferences.getString(KEY_API_TOKEN, "").orEmpty(),
+            baseUrl = getEffectiveBaseUrl(),
+            apiToken = preferences.getString(KEY_DEVICE_TOKEN, null)
+                ?.ifBlank { null }
+                ?: preferences.getString(KEY_API_TOKEN, "").orEmpty(),
         )
 
-    fun isConfigured(): Boolean =
-        getConfiguration().let { it.baseUrl.isNotBlank() && it.apiToken.isNotBlank() }
+    fun isConfigured(): Boolean = getEffectiveBaseUrl().isNotBlank()
+
+    fun autoDisableAccessibilityOnPayment(): Boolean =
+        preferences.getBoolean(KEY_AUTO_DISABLE_PAYMENT_ACCESSIBILITY, true)
+
+    fun setAutoDisableAccessibilityOnPayment(enabled: Boolean): Boolean =
+        preferences.edit()
+            .putBoolean(KEY_AUTO_DISABLE_PAYMENT_ACCESSIBILITY, enabled)
+            .commit()
+
+    fun ensureDeviceToken(forceReset: Boolean = false): String? = synchronized(authLock) {
+        val baseUrl = getEffectiveBaseUrl()
+        if (baseUrl.isBlank()) return@synchronized null
+
+        val legacyAdmin = preferences.getString(KEY_API_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+        if (legacyAdmin != null && !forceReset) return@synchronized legacyAdmin
+
+        val existingToken = if (forceReset) {
+            null
+        } else {
+            preferences.getString(KEY_DEVICE_TOKEN, null)?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        if (existingToken != null) return@synchronized existingToken
+
+        if (forceReset) {
+            preferences.edit().remove(KEY_DEVICE_TOKEN).commit()
+        }
+
+        repeat(2) { attempt ->
+            val deviceId = if (forceReset && attempt == 0 || attempt > 0) {
+                UUID.randomUUID().toString().also { freshId ->
+                    cachedDeviceId = freshId
+                    preferences.edit().putString(KEY_DEVICE_ID, freshId).commit()
+                }
+            } else {
+                currentDeviceId()
+            }
+            val payload = gson.toJson(
+                mapOf(
+                    "deviceId" to deviceId,
+                    "appVersion" to BuildConfig.VERSION_NAME,
+                    "deviceModel" to "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                ),
+            )
+            val request = Request.Builder()
+                .url("$baseUrl/api/v1/devices/register")
+                .header("Content-Type", "application/json")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            val registeredToken = runCatching {
+                client.newCall(request).execute().use { response ->
+                    val rawBody = response.body?.string().orEmpty()
+                    if (response.code == 409) {
+                        return@use null
+                    }
+                    if (!response.isSuccessful) {
+                        throw IllegalStateException("Device registration failed (HTTP ${response.code}).")
+                    }
+                    JsonParser.parseString(rawBody)
+                        .takeIf { it.isJsonObject }
+                        ?.asJsonObject
+                        ?.get("deviceToken")
+                        ?.takeIf { it.isJsonPrimitive }
+                        ?.asString
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                }
+            }.getOrElse { error ->
+                if (attempt == 1) throw error
+                null
+            }
+            if (registeredToken != null) {
+                preferences.edit().putString(KEY_DEVICE_TOKEN, registeredToken).commit()
+                return@synchronized registeredToken
+            }
+        }
+        null
+    }
+
+    fun postAuthorizedJson(
+        path: String,
+        bodyBuilder: (deviceId: String) -> String,
+    ): AuthorizedHttpResponse {
+        val baseUrl = getEffectiveBaseUrl()
+        if (baseUrl.isBlank()) {
+            throw IllegalStateException("Backend server URL is not configured.")
+        }
+        var token = ensureDeviceToken(forceReset = false)
+            ?: throw IllegalStateException("Could not register this device with the backend.")
+
+        repeat(2) { attempt ->
+            val deviceId = currentDeviceId()
+            val request = Request.Builder()
+                .url("$baseUrl$path")
+                .header("Authorization", "Bearer $token")
+                .header("Content-Type", "application/json")
+                .post(bodyBuilder(deviceId).toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { response ->
+                val rawBody = response.body?.string().orEmpty()
+                if (response.code == 401 && attempt == 0) {
+                    token = ensureDeviceToken(forceReset = true)
+                        ?: return AuthorizedHttpResponse(
+                            code = 401,
+                            body = rawBody,
+                            isSuccessful = false,
+                            errorMessage = extractErrorMessage(rawBody) ?: "Unauthorized device session.",
+                        )
+                    return@use
+                }
+                return AuthorizedHttpResponse(
+                    code = response.code,
+                    body = rawBody,
+                    isSuccessful = response.isSuccessful,
+                    errorMessage = if (response.isSuccessful) null else extractErrorMessage(rawBody),
+                )
+            }
+        }
+        return AuthorizedHttpResponse(
+            code = 401,
+            body = "",
+            isSuccessful = false,
+            errorMessage = "Device authentication failed.",
+        )
+    }
 
     fun scanInstalledApps(): List<AppInventoryRecord> {
+        val deviceId = currentDeviceId()
         val inventoryByPackage = linkedMapOf<String, AppInventoryRecord>()
         val packages = appContext.packageManager.getInstalledPackages(0)
         packages.forEach { info ->
@@ -101,7 +276,7 @@ class CommandApiClient(context: Context) {
         val launcherIntent = android.content.Intent(
             android.content.Intent.ACTION_MAIN,
         ).addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-        val launchers = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        val launchers = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             appContext.packageManager.queryIntentActivities(
                 launcherIntent,
                 android.content.pm.PackageManager.ResolveInfoFlags.of(
@@ -140,23 +315,16 @@ class CommandApiClient(context: Context) {
 
     fun syncAppInventory(): Boolean {
         if (!isConfigured() || !inventoryUploadEnabled()) return false
-        val configuration = getConfiguration()
         val inventory = scanInstalledApps()
-        val request = Request.Builder()
-            .url("${configuration.baseUrl}/api/v1/app-inventory")
-            .header("Authorization", "Bearer ${configuration.apiToken}")
-            .header("Content-Type", "application/json")
-            .post(
+        return runCatching {
+            postAuthorizedJson("/api/v1/app-inventory") { deviceId ->
                 gson.toJson(
                     mapOf(
                         "deviceId" to deviceId,
-                        "apps" to inventory,
+                        "apps" to inventory.map { it.copy(deviceId = deviceId) },
                     ),
-                ).toRequestBody("application/json".toMediaType()),
-            )
-            .build()
-        return runCatching {
-            client.newCall(request).execute().use { it.isSuccessful }
+                )
+            }.isSuccessful
         }.getOrElse { false }
     }
 
@@ -167,31 +335,33 @@ class CommandApiClient(context: Context) {
         resultMessage: String?,
         latencyMs: Long?,
     ): Boolean {
-        val configuration = getConfiguration()
-        if (configuration.baseUrl.isBlank() || configuration.apiToken.isBlank()) {
-            return false
-        }
-        val record = CommandHistoryRecord(
-            deviceId = deviceId,
-            commandText = commandText,
-            source = source,
-            resultStatus = resultStatus,
-            resultMessage = resultMessage,
-            latencyMs = latencyMs,
-        )
-        val request = Request.Builder()
-            .url("${configuration.baseUrl}/api/v1/commands")
-            .header("Authorization", "Bearer ${configuration.apiToken}")
-            .header("Content-Type", "application/json")
-            .post(
-                gson.toJson(record)
-                    .toRequestBody("application/json".toMediaType()),
-            )
-            .build()
+        if (!isConfigured()) return false
         return runCatching {
-            client.newCall(request).execute().use { it.isSuccessful }
+            postAuthorizedJson("/api/v1/commands") { deviceId ->
+                gson.toJson(
+                    CommandHistoryRecord(
+                        deviceId = deviceId,
+                        commandText = commandText,
+                        source = source,
+                        resultStatus = resultStatus,
+                        resultMessage = resultMessage,
+                        latencyMs = latencyMs,
+                    ),
+                )
+            }.isSuccessful
         }.getOrElse { false }
     }
+
+    private fun extractErrorMessage(rawBody: String): String? =
+        runCatching {
+            JsonParser.parseString(rawBody)
+                .takeIf { it.isJsonObject }
+                ?.asJsonObject
+                ?.get("error")
+                ?.takeIf { it.isJsonPrimitive }
+                ?.asString
+                ?.take(160)
+        }.getOrNull()
 
     data class ApiConfiguration(
         val baseUrl: String,
@@ -202,6 +372,8 @@ class CommandApiClient(context: Context) {
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_API_TOKEN = "api_token"
+        private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_INVENTORY_UPLOAD = "inventory_upload"
+        private const val KEY_AUTO_DISABLE_PAYMENT_ACCESSIBILITY = "auto_disable_payment_accessibility"
     }
 }

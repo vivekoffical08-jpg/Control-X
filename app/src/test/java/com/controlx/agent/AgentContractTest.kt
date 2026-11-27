@@ -1,20 +1,20 @@
 package com.controlx.agent
 
+import android.graphics.Rect
 import com.controlx.accessibility.AccessibilityNodeSnapshot
 import com.controlx.accessibility.AccessibilitySnapshot
+import com.controlx.core.AgentBrainPort
 import com.controlx.domain.ActionId
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import com.controlx.domain.ActionRecord
 import com.controlx.domain.ActionType
 import com.controlx.domain.AgentAction
-import com.controlx.domain.ScreenSnapshot
-import com.controlx.agent.ReActEngine
-import android.graphics.Rect
 import com.controlx.domain.CleanNode
+import com.controlx.domain.ScreenSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class AgentContractTest {
     private val snapshot = AccessibilitySnapshot(
@@ -35,6 +35,19 @@ class AgentContractTest {
             ),
         ),
     )
+
+    private val dummyBrain = AgentBrainPort { _, _, _ ->
+        AgentAction(
+            thought = "done",
+            action = ActionType.FINISH,
+            targetNodeId = null,
+            coordinates = null,
+            textInput = null,
+            scrollDirection = null,
+            systemCommand = null,
+            expectedOutcome = "complete",
+        )
+    }
 
     @Test
     fun rejectsNodeNotInCurrentSnapshot() {
@@ -64,10 +77,7 @@ class AgentContractTest {
                 timestampMillis = index.toLong(),
             )
         }
-        assertTrue(
-            ReActEngine(NvidiaNimApiClient(apiKeyProvider = { "test" }))
-                .maxStepsReached(history),
-        )
+        assertTrue(ReActEngine(dummyBrain).maxStepsReached(history))
     }
 
     @Test
@@ -82,7 +92,7 @@ class AgentContractTest {
             systemCommand = null,
             expectedOutcome = "continue",
         )
-        val snapshot = ScreenSnapshot(
+        val targetSnapshot = ScreenSnapshot(
             packageName = "com.example",
             timestamp = 1L,
             nodes = listOf(
@@ -100,15 +110,13 @@ class AgentContractTest {
                 ),
             ),
         )
-        val engine = ReActEngine(
-            NvidiaNimApiClient(apiKeyProvider = { "test" }),
-        )
-        val fingerprint = engine.screenFingerprint(snapshot)
+        val engine = ReActEngine(dummyBrain)
+        val fingerprint = engine.screenFingerprint(targetSnapshot)
         val history = listOf(
             ActionRecord(action, fingerprint, 1L),
             ActionRecord(action, fingerprint, 2L),
         )
-        assertTrue(engine.detectLoop(history, snapshot))
+        assertTrue(engine.detectLoop(history, targetSnapshot))
     }
 
     @Test
@@ -211,39 +219,36 @@ class AgentContractTest {
     }
 
     @Test
-    fun nvidiaNimClientBuildsNemotronUltraPayloadWithThinkingDisabled() {
-        val client = NvidiaNimApiClient(apiKeyProvider = { "nvapi-test" })
-        val screen = ScreenSnapshot(
-            packageName = "com.example",
-            timestamp = 1L,
-            nodes = emptyList(),
-            activityName = "MainActivity",
-        )
+    fun backendClientParsesDynamicIntentPayload() {
+        val client = BackendAiClient()
+        val json = """
+            {"intent":"DRAFT_SMS","thought":"Draft text message","contactQuery":"Mom","messageText":"Running 10 minutes late"}
+        """.trimIndent()
 
-        val payload = client.buildRequestJson("open settings", screen, emptyList())
+        val plan = client.parseIntentJson(json)
 
-        assertEquals(NvidiaNimApiClient.DEFAULT_MODEL, payload.get("model").asString)
-        val templateKwargs = payload.getAsJsonObject("chat_template_kwargs")
-        assertEquals(false, templateKwargs.get("enable_thinking").asBoolean)
-        assertEquals("json_object", payload.getAsJsonObject("response_format").get("type").asString)
+        assertEquals(DynamicIntentType.DRAFT_SMS, plan.intent)
+        assertEquals("Mom", plan.contactQuery)
+        assertEquals("Running 10 minutes late", plan.messageText)
     }
 
     @Test
-    fun nvidiaNimClientExtractsJsonFromThinkingAndFenceOutput() {
-        val client = NvidiaNimApiClient(apiKeyProvider = { "nvapi-test" })
-        val raw = """
-            <think>
-            Checking the visible node cx_1 before tapping.
-            </think>
-            ```json
+    fun backendClientParsesReActActionPayload() {
+        val client = BackendAiClient()
+        val json = """
             {"thought":"Tap Continue","action":"CLICK","targetNodeId":"cx_1","coordinates":null,"textInput":null,"scrollDirection":null,"systemCommand":null,"expectedOutcome":"Moves to next screen"}
-            ```
         """.trimIndent()
 
-        val action = client.parseResponseContent(raw)
+        val action = client.parseAgentActionJson(json)
 
         assertEquals(ActionType.CLICK, action.action)
         assertEquals("cx_1", action.targetNodeId)
         assertEquals("Tap Continue", action.thought)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun backendClientRejectsUnknownDynamicIntent() {
+        val client = BackendAiClient()
+        client.parseIntentJson("""{"intent":"SHELL_EXEC","thought":"invalid"}""")
     }
 }

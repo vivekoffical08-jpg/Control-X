@@ -19,6 +19,15 @@ android {
         versionName = providers.gradleProperty("appVersionName")
             .orElse("0.1.0")
             .get()
+        val configuredBackendUrl = providers.gradleProperty("controlxBackendUrl")
+            .orElse(providers.environmentVariable("CONTROLX_BACKEND_URL"))
+            .orElse("")
+            .get()
+            .trim()
+            .trimEnd('/')
+            .replace("\"", "")
+            .replace("\\", "")
+        buildConfigField("String", "DEFAULT_BACKEND_URL", "\"$configuredBackendUrl\"")
     }
 
     buildFeatures {

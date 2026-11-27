@@ -13,7 +13,7 @@ No Android Studio or developer tools are required for users.
 1. Open the **[latest GitHub release](https://github.com/vivekoffical08-jpg/Control-X/releases/latest)**.
 2. Download the attached debug APK (`Control-X-v0.1.<build>-debug.apk`).
 3. On Android, allow installation from the browser/file manager when prompted.
-4. Open Control X and grant Microphone, Overlay, and Accessibility permissions.
+4. Open Control X and grant **Microphone** and **Overlay** (plus **Contacts** if you want call/SMS-by-name). **Accessibility stays OFF by default** so sideloaded builds do not trigger Google Pay / UPI security blocks.
 
 If Android shows **“App blocked to protect your device”**, read [INSTALL_ANDROID.md](INSTALL_ANDROID.md). This can happen for sideloaded APKs that request Accessibility, Overlay, Camera, or Microphone access. It does not mean the APK was compiled incorrectly.
 
@@ -41,7 +41,7 @@ A normal third-party app cannot directly intercept a 3–4 second power-button p
 
 **Optional Device Admin:** use **Device Admin > SET UP** only if you want `lock` commands to use Android Device Policy instead of Accessibility. Device Admin activation is user-controlled and may require confirmation or an alternate Settings flow by OEM.
 
-**Payment safety:** Control X does not automatically dismiss dialogs or complete payments. When a detected banking/payment app becomes foreground, it cancels active automation, clears the captured screen snapshot, and removes both overlay windows; leaving the app does not automatically resume the task. Detection uses package-name patterns and can miss OEM-specific apps or checkout pages inside a general-purpose browser. Some providers block any enabled Accessibility Service even after the overlay is removed. If that happens, use **Accessibility settings** in Control X's ongoing notification and disable Control X manually; Android does not allow the app to silently disable or re-enable that service.
+**Payment safety:** Control X keeps Accessibility **OFF** by default so daily voice, app launching, calling, SMS drafts, alarms, search, media, and backend AI commands work without triggering Google Pay or UPI blocks. If you enable optional Screen Automation in Settings, Control X automatically turns Accessibility off (`disableSelf()`) when entering detected banking/payment apps (configurable via **AUTO-OFF** toggle) and includes a **Disable Accessibility** button in its notification. If Google Pay previously cached a block while an unverified accessibility service was active, turn Accessibility off, clear Google Pay/Play Services cache, and restart your phone once. For wide release without `"unverified app"` warnings, distribute via a signed Google Play release ([INSTALL_ANDROID.md](INSTALL_ANDROID.md)).
 
 The APK and SHA-256 checksum are automatically built and uploaded as workflow artifacts by GitHub Actions after each `main` branch update. Tagged GitHub Releases can be published manually via `workflow_dispatch` with release publishing enabled.
 
@@ -84,7 +84,9 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 - Explicit confirmation is required for every ReAct automation step before it executes.
 - Accessibility node sanitizer with ephemeral `cx_*` IDs and password/sensitive-text redaction.
 - Accessibility click, text, scroll, coordinate gesture, and global-navigation actuator.
-- NVIDIA NIM (`nvidia/nemotron-3-ultra-550b-a55b` default) JSON ReAct planning contract with 10-step loop limits and fingerprint loop detection.
+- NVIDIA NIM (`nvidia/nemotron-3-ultra-550b-a55b` default) JSON reasoning and NLU intent routing hosted securely on the backend (`server/`) — no `NVIDIA_API_KEY` or backend secret is stored in the APK or shown to end users.
+- Dynamic per-device registration (`POST /api/v1/devices/register`) with MySQL token hashing and rate limits, plus dynamic OS-intent execution (`DynamicActionExecutor`) so any device handles natural language without relying on Accessibility.
+- Accessibility is strictly optional with `disableSelf()` automatic payment protection and a 1-tap notification disable button.
 - ReAct click/type actions must target visible compatible nodes from the current snapshot; coordinate clicks must remain inside that node's bounds. The screen is rechecked after approval and again immediately before dispatch.
 - ReAct never sends an unapproved automatic scroll/click as a recovery after a failed action or unchanged screen.
 - Bottom assistant overlay surface, latency transcript state, and execution-state styling.

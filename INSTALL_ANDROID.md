@@ -42,6 +42,14 @@ adb install -r app-debug.apk
 
 ADB installation can avoid a browser/file-manager unknown-app prompt, but Play Protect may still scan the package depending on device policy.
 
+## Google Pay / UPI Compatibility for Sideloaded Builds
+
+Google Pay and UPI apps inspect Android's `AccessibilityManager` and flag sideloaded ("unverified") APKs whose Accessibility Service is turned **ON**.
+
+- Keep **Optional Screen Automation** **OFF** in Control X unless you are actively testing cross-app UI clicking/scrolling. All Voice, App Launch, Calling, SMS Drafts, Flashlight, Volume, Alarms, Web Search, Media, and Backend AI Intent routing work with Accessibility OFF.
+- Leave **AUTO-OFF** enabled in Control X so `disableSelf()` turns Accessibility off automatically if you open a payment app, and use the **Disable Accessibility** button in the notification before paying.
+- If Google Pay already showed *"Payments blocked for safety"*, turn Accessibility off, force-stop & clear cache on Google Pay / Google Play Services, and **restart your phone** once.
+
 ## Recommended production distribution
 
 To remove this warning for normal users:

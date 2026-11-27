@@ -1,64 +1,61 @@
 package com.controlx
 
 import android.Manifest
+import android.app.admin.DevicePolicyManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.content.ClipData
-import android.content.ClipboardManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import com.controlx.accessibility.ControlAccessibilityService
 import com.controlx.domain.FastPathResult
 import com.controlx.overlay.OverlayController
+import com.controlx.overlay.OverlayControllerService
+import com.controlx.platform.CommandApiClient
+import com.controlx.platform.ContactCatalogManager
 import com.controlx.platform.PermissionRepository
 import com.controlx.platform.PermissionSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.lifecycle.lifecycleScope
-import com.controlx.agent.NvidiaNimApiClient
-import com.controlx.platform.NvidiaAiConfig
-import com.controlx.platform.NvidiaKeyStore
-import com.controlx.platform.CommandApiClient
-import com.controlx.platform.ContactCatalogManager
-import android.app.admin.DevicePolicyManager
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -79,7 +76,6 @@ class MainActivity : ComponentActivity() {
         ),
     )
     private var overlayController: OverlayController? = null
-    private val nvidiaKeyStore by lazy { NvidiaKeyStore(this) }
     private val commandApiClient by lazy { CommandApiClient(this) }
     private var startupCrash by mutableStateOf(
         (application as? ControlXApplication)
@@ -88,6 +84,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ControlAccessibilityService.syncAutoDisableOnPayment(this)
         try {
             setContent {
                 MaterialTheme(
@@ -103,39 +100,52 @@ class MainActivity : ComponentActivity() {
                         PermissionDashboard(
                             permissions = permissions,
                             startupCrash = startupCrash,
-                            onPermissionsChanged = {
-                                refreshPermissions()
-                            },
+                            onPermissionsChanged = { refreshPermissions() },
                             onLaunchOverlay = {
-                                if (permissions.microphoneGranted &&
-                                    permissions.overlayGranted
-                                ) {
-                                    runCatching {
-                                        com.controlx.overlay.OverlayControllerService.start(this)
-                                    }
+                                if (permissions.microphoneGranted && permissions.overlayGranted) {
+                                    runCatching { OverlayControllerService.start(this) }
                                 }
                             },
                             onClearCrash = {
                                 startupCrash = null
                                 ControlXApplication.clearLastCrash(application)
                             },
-                            onLoadAiConfig = {
-                                nvidiaKeyStore.loadConfig()
+                            onLoadServerUrl = { commandApiClient.getEffectiveBaseUrl() },
+                            onConnectBackend = { serverUrl ->
+                                val configured = commandApiClient.configureServerUrl(serverUrl)
+                                if (!configured) return@PermissionDashboard "Invalid server URL"
+                                if (!commandApiClient.isConfigured()) {
+                                    return@PermissionDashboard "Server URL needed"
+                                }
+                                val registered = runCatching {
+                                    commandApiClient.ensureDeviceToken() != null
+                                }.getOrDefault(false)
+                                if (registered) "Connected" else "Connection failed"
                             },
-                            onSaveAiConfig = { key, model ->
-                                nvidiaKeyStore.save(key, model)
+                            onResetBackend = { commandApiClient.clearConfiguration() },
+                            onHasDeviceSession = { commandApiClient.hasDeviceToken() },
+                            onAutoEnsureSession = {
+                                if (!commandApiClient.isConfigured()) {
+                                    "Server URL needed"
+                                } else {
+                                    val ok = runCatching {
+                                        commandApiClient.ensureDeviceToken() != null
+                                    }.getOrDefault(false)
+                                    if (ok) "Connected" else "Offline / unreachable"
+                                }
                             },
-                            onClearAiConfig = {
-                                nvidiaKeyStore.clear()
+                            onLoadAutoDisablePayment = {
+                                commandApiClient.autoDisableAccessibilityOnPayment()
                             },
-                            onLoadApiConfiguration = {
-                                commandApiClient.getConfiguration()
+                            onToggleAutoDisablePayment = { enabled ->
+                                commandApiClient.setAutoDisableAccessibilityOnPayment(enabled)
+                                ControlAccessibilityService.setAutoDisableOnPayment(enabled)
+                                enabled
                             },
-                            onSaveApiConfiguration = { baseUrl, apiToken ->
-                                commandApiClient.configure(baseUrl, apiToken)
-                            },
-                            onClearApiConfiguration = {
-                                commandApiClient.clearConfiguration()
+                            onDisableAccessibilityNow = {
+                                val disabled = ControlAccessibilityService.disableForPaymentSafety()
+                                refreshPermissions()
+                                disabled
                             },
                             onLoadInventoryConfiguration = {
                                 commandApiClient.inventoryUploadEnabled()
@@ -144,12 +154,8 @@ class MainActivity : ComponentActivity() {
                                 commandApiClient.setInventoryUploadEnabled(enabled)
                                 enabled
                             },
-                            onScanInventory = {
-                                commandApiClient.scanInstalledApps().size
-                            },
-                            onSyncInventory = {
-                                commandApiClient.syncAppInventory()
-                            },
+                            onScanInventory = { commandApiClient.scanInstalledApps().size },
+                            onSyncInventory = { commandApiClient.syncAppInventory() },
                         )
                     }
                 }
@@ -169,12 +175,9 @@ class MainActivity : ComponentActivity() {
         if (intent.action != ACTION_LAUNCH_OVERLAY) return
         val snapshot = PermissionRepository(this).snapshot()
         if (snapshot.microphoneGranted && snapshot.overlayGranted) {
-            com.controlx.overlay.OverlayControllerService.start(this)
+            OverlayControllerService.start(this)
         }
     }
-
-    private fun getOverlayController(): OverlayController =
-        overlayController ?: OverlayController(this).also { overlayController = it }
 
     override fun onResume() {
         super.onResume()
@@ -209,12 +212,14 @@ private fun PermissionDashboard(
     onPermissionsChanged: () -> Unit,
     onLaunchOverlay: () -> Unit,
     onClearCrash: () -> Unit,
-    onLoadAiConfig: () -> NvidiaAiConfig,
-    onSaveAiConfig: (String, String) -> Boolean,
-    onClearAiConfig: () -> Boolean,
-    onLoadApiConfiguration: () -> CommandApiClient.ApiConfiguration,
-    onSaveApiConfiguration: (String, String) -> Boolean,
-    onClearApiConfiguration: () -> Boolean,
+    onLoadServerUrl: () -> String,
+    onConnectBackend: (String) -> String,
+    onResetBackend: () -> Boolean,
+    onHasDeviceSession: () -> Boolean,
+    onAutoEnsureSession: () -> String,
+    onLoadAutoDisablePayment: () -> Boolean,
+    onToggleAutoDisablePayment: (Boolean) -> Boolean,
+    onDisableAccessibilityNow: () -> Boolean,
     onLoadInventoryConfiguration: () -> Boolean,
     onSetInventoryUpload: (Boolean) -> Boolean,
     onScanInventory: () -> Int,
@@ -224,54 +229,39 @@ private fun PermissionDashboard(
     val scope = rememberCoroutineScope()
     var diagnosticCommand by mutableStateOf("")
     var diagnosticResult by mutableStateOf("Enter a Fast-Path command.")
-    var nvidiaKey by mutableStateOf("")
-    var nvidiaModel by mutableStateOf(NvidiaNimApiClient.DEFAULT_MODEL)
-    var nvidiaStatus by mutableStateOf("Not configured")
-    var apiBaseUrl by mutableStateOf("")
-    var apiToken by mutableStateOf("")
-    var apiStatus by mutableStateOf("Not configured")
+    var serverUrl by mutableStateOf("")
+    var backendStatus by mutableStateOf("Checking...")
+    var autoDisablePayment by mutableStateOf(true)
+    var accessibilityActionMessage by mutableStateOf<String?>(null)
     var inventoryUploadEnabled by mutableStateOf(false)
     var inventoryStatus by mutableStateOf("Local scan not run")
+
     LaunchedEffect(Unit) {
         onPermissionsChanged()
-        val loadedConfig = withContext(Dispatchers.IO) { onLoadAiConfig() }
-        nvidiaKey = loadedConfig.apiKey
-        nvidiaModel = loadedConfig.model
-        nvidiaStatus = if (loadedConfig.apiKey.isBlank()) "Not configured" else "Configured"
-        val apiConfiguration = withContext(Dispatchers.IO) {
-            onLoadApiConfiguration()
-        }
-        apiBaseUrl = apiConfiguration.baseUrl
-        apiToken = apiConfiguration.apiToken
-        apiStatus = if (apiConfiguration.baseUrl.isBlank()) {
-            "Not configured"
+        serverUrl = withContext(Dispatchers.IO) { onLoadServerUrl() }
+        autoDisablePayment = withContext(Dispatchers.IO) { onLoadAutoDisablePayment() }
+        val alreadyRegistered = withContext(Dispatchers.IO) { onHasDeviceSession() }
+        backendStatus = if (serverUrl.isBlank()) {
+            "Server URL needed"
+        } else if (alreadyRegistered) {
+            "Connected"
         } else {
-            "Configured"
+            withContext(Dispatchers.IO) { onAutoEnsureSession() }
         }
-        inventoryUploadEnabled = withContext(Dispatchers.IO) {
-            onLoadInventoryConfiguration()
-        }
+        inventoryUploadEnabled = withContext(Dispatchers.IO) { onLoadInventoryConfiguration() }
         val scanned = withContext(Dispatchers.IO) { onScanInventory() }
         inventoryStatus = "$scanned apps found locally"
-        if (inventoryUploadEnabled) {
+        if (inventoryUploadEnabled && serverUrl.isNotBlank()) {
             val synced = withContext(Dispatchers.IO) { onSyncInventory() }
             if (synced) inventoryStatus = "$scanned apps inventory uploaded"
         }
     }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { onPermissionsChanged() },
     )
-    val runtimePermissions = buildList {
-        add(Manifest.permission.RECORD_AUDIO)
-        add(Manifest.permission.CAMERA)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }.toTypedArray()
-
-    val enabledForOverlay =
-        permissions.microphoneGranted && permissions.overlayGranted
+    val enabledForOverlay = permissions.microphoneGranted && permissions.overlayGranted
 
     Column(
         modifier = Modifier
@@ -288,7 +278,7 @@ private fun PermissionDashboard(
             color = Color(0xFFF8FAFC),
         )
         Text(
-            text = "Android agent control center",
+            text = "Dynamic voice & OS assistant",
             style = MaterialTheme.typography.bodyMedium,
             color = Color(0xFF94A3B8),
         )
@@ -321,24 +311,29 @@ private fun PermissionDashboard(
             }
         }
 
-        ControlCard(title = "Device permissions", subtitle = "Required for voice and system control") {
+        ControlCard(
+            title = "Core assistant permissions",
+            subtitle = "Voice, intents, apps, calls & AI work without Accessibility",
+        ) {
             PermissionRow("Microphone", permissions.microphoneGranted) {
                 permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
             }
+            PermissionRow("Overlay", permissions.overlayGranted) {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}"),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
             PermissionRow("Notifications", permissions.notificationsGranted) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    permissionLauncher.launch(
-                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    )
+                    permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
                 }
             }
-            PermissionRow("Contacts (for calls by name)", permissions.contactsGranted) {
+            PermissionRow("Contacts (for calls & SMS drafts)", permissions.contactsGranted) {
                 permissionLauncher.launch(arrayOf(Manifest.permission.READ_CONTACTS))
             }
-            Text(
-                "Contact names and numbers are indexed only on this device after permission is granted; calling opens the dialer for you to confirm.",
-                color = Color(0xFF94A3B8),
-            )
             PermissionRow("Digital assistant", permissions.digitalAssistantGranted) {
                 val routes = listOf(
                     Settings.ACTION_VOICE_INPUT_SETTINGS,
@@ -355,24 +350,9 @@ private fun PermissionDashboard(
                 }
                 if (opened != true) {
                     context.startActivity(
-                        Intent(Settings.ACTION_SETTINGS)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 }
-            }
-            PermissionRow("Overlay", permissions.overlayGranted) {
-                context.startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:${context.packageName}"),
-                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
-            PermissionRow("Accessibility", permissions.accessibilityGranted) {
-                context.startActivity(
-                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
             }
             PermissionRow("Write settings", permissions.writeSettingsGranted) {
                 context.startActivity(
@@ -399,7 +379,7 @@ private fun PermissionDashboard(
                     )
                 }
             }
-            PermissionRow("Device Admin", permissions.deviceAdminActive) {
+            PermissionRow("Device Admin (lock without Accessibility)", permissions.deviceAdminActive) {
                 val component = android.content.ComponentName(
                     context,
                     com.controlx.admin.ControlXDeviceAdminReceiver::class.java,
@@ -408,120 +388,127 @@ private fun PermissionDashboard(
                     putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
                     putExtra(
                         DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                        "Control X uses Device Admin only to provide optional screen locking.",
+                        "Control X uses Device Admin only to lock the screen without Accessibility.",
                     )
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)
             }
             Text(
-                "Power-hold activation: open Digital Assistant / Default apps / Assist settings, " +
-                    "then select Control X. Android and OEM menus vary, and 3–4 second power-hold " +
-                    "support is not guaranteed. A normal app cannot intercept the power key.",
+                "Power-hold activation depends on your OEM Default Assistant menu.",
                 color = Color(0xFF94A3B8),
             )
         }
 
         ControlCard(
-            title = "NVIDIA Nemotron AI",
-            subtitle = "NVIDIA NIM endpoint, encrypted locally",
-            status = nvidiaStatus,
+            title = "Optional screen automation",
+            subtitle = "Google Pay & UPI compatibility",
+            status = if (permissions.accessibilityGranted) "Active" else "Off (Payment safe)",
+            positiveStatus = !permissions.accessibilityGranted,
         ) {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = nvidiaKey,
-                onValueChange = { nvidiaKey = it },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                label = { Text("NVIDIA API key") },
-                placeholder = { Text("Paste NVIDIA NIM key (nvapi-...)") },
-            )
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = nvidiaModel,
-                onValueChange = { nvidiaModel = it },
-                singleLine = true,
-                label = { Text("Nemotron model ID") },
-                placeholder = { Text(NvidiaNimApiClient.DEFAULT_MODEL) },
+            Text(
+                "Leave OFF for daily use so sideloaded builds do not trigger Google Pay or banking blocks. Enable only when you want in-app tapping or scrolling.",
+                color = Color(0xFF94A3B8),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (permissions.accessibilityGranted) {
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            val stopped = onDisableAccessibilityNow()
+                            accessibilityActionMessage = if (stopped) {
+                                "Accessibility turned off. Restart phone once if a payment app cached a warning."
+                            } else {
+                                "Opening Accessibility settings."
+                            }
+                            if (!stopped) {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                )
+                            }
+                        },
+                    ) { Text("DISABLE NOW") }
+                } else {
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        },
+                    ) { Text("ENABLE OPTIONAL") }
+                }
                 Button(
                     modifier = Modifier.weight(1f),
-                    enabled = nvidiaKey.isNotBlank() && nvidiaModel.isNotBlank(),
                     onClick = {
                         scope.launch(Dispatchers.IO) {
-                            val saved = onSaveAiConfig(nvidiaKey, nvidiaModel)
+                            val updated = onToggleAutoDisablePayment(!autoDisablePayment)
                             withContext(Dispatchers.Main) {
-                                nvidiaStatus = if (saved) "Configured" else "Save failed"
+                                autoDisablePayment = updated
                             }
                         }
                     },
-                ) { Text("SAVE AI CONFIG") }
-                Button(
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        scope.launch(Dispatchers.IO) {
-                            if (onClearAiConfig()) {
-                                withContext(Dispatchers.Main) {
-                                    nvidiaKey = ""
-                                    nvidiaModel = NvidiaNimApiClient.DEFAULT_MODEL
-                                    nvidiaStatus = "Not configured"
-                                }
-                            }
-                        }
-                    },
-                ) { Text("CLEAR") }
+                ) {
+                    Text(if (autoDisablePayment) "AUTO-OFF: ON" else "AUTO-OFF: OFF")
+                }
+            }
+            accessibilityActionMessage?.let { msg ->
+                Text(msg, color = Color(0xFF7DD3FC))
             }
         }
 
         ControlCard(
-            title = "Command database",
-            subtitle = "MySQL through a protected backend",
-            status = apiStatus,
+            title = "Cloud AI & device sync",
+            subtitle = "NVIDIA Nemotron runs on backend — no user API key needed",
+            status = backendStatus,
+            positiveStatus = backendStatus == "Connected",
         ) {
-            OutlinedTextField(
-                modifier = Modifier.fillMaxWidth(),
-                value = apiBaseUrl,
-                onValueChange = { apiBaseUrl = it },
-                singleLine = true,
-                label = { Text("Backend URL") },
-                placeholder = { Text("https://api.example.com") },
+            Text(
+                "All AI keys stay hidden on the backend server. This phone registers dynamically with its own per-device session token.",
+                color = Color(0xFF94A3B8),
             )
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
-                value = apiToken,
-                onValueChange = { apiToken = it },
+                value = serverUrl,
+                onValueChange = { serverUrl = it },
                 singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                label = { Text("API token") },
-                placeholder = { Text("Paste backend token") },
+                label = { Text("Backend server URL") },
+                placeholder = { Text("https://your-controlx-server.example.com") },
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     modifier = Modifier.weight(1f),
+                    enabled = serverUrl.isNotBlank(),
                     onClick = {
+                        backendStatus = "Connecting..."
                         scope.launch(Dispatchers.IO) {
-                            val saved = onSaveApiConfiguration(apiBaseUrl, apiToken)
+                            val result = onConnectBackend(serverUrl)
                             withContext(Dispatchers.Main) {
-                                apiStatus = if (saved) "Configured" else "Invalid settings"
+                                backendStatus = result
                             }
                         }
                     },
-                ) { Text("SAVE DATABASE") }
+                ) { Text("CONNECT DEVICE") }
                 Button(
                     modifier = Modifier.weight(1f),
                     onClick = {
                         scope.launch(Dispatchers.IO) {
-                            if (onClearApiConfiguration()) {
+                            if (onResetBackend()) {
+                                val reloadedUrl = onLoadServerUrl()
                                 withContext(Dispatchers.Main) {
-                                    apiBaseUrl = ""
-                                    apiToken = ""
-                                    apiStatus = "Not configured"
+                                    serverUrl = reloadedUrl
+                                    backendStatus = if (reloadedUrl.isBlank()) {
+                                        "Server URL needed"
+                                    } else {
+                                        "Session reset"
+                                    }
                                 }
                             }
                         }
                     },
-                ) { Text("CLEAR") }
+                ) { Text("RESET") }
             }
         }
 
@@ -529,9 +516,10 @@ private fun PermissionDashboard(
             title = "Device app inventory",
             subtitle = "The app list is scanned locally after launch",
             status = inventoryStatus,
+            positiveStatus = inventoryStatus.contains("uploaded") || inventoryStatus.contains("local"),
         ) {
             Text(
-                "Package names and app labels are sent to the configured backend only when upload consent is enabled.",
+                "Package names and app labels stay local unless you enable backend upload consent.",
                 color = Color(0xFF94A3B8),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -546,7 +534,7 @@ private fun PermissionDashboard(
                                 inventoryUploadEnabled = updated
                                 inventoryStatus =
                                     if (synced) "$count apps inventory uploaded"
-                                    else if (updated) "$count apps local; upload not configured"
+                                    else if (updated) "$count apps local; connect backend first"
                                     else "Upload consent failed"
                             }
                         }
@@ -592,7 +580,7 @@ private fun PermissionDashboard(
             Text("LAUNCH CONTROL X")
         }
 
-        ControlCard(title = "Fast-Path test", subtitle = "Try a command without voice") {
+        ControlCard(title = "Fast-Path test", subtitle = "Try an offline command without voice") {
             OutlinedTextField(
                 modifier = Modifier.fillMaxWidth(),
                 value = diagnosticCommand,
@@ -612,7 +600,7 @@ private fun PermissionDashboard(
                                 is FastPathResult.Executed ->
                                     "Executed: ${result.message} (${result.latencyMs} ms)"
                                 FastPathResult.Unhandled ->
-                                    "No Fast-Path match."
+                                    "No local Fast-Path match (use overlay for backend dynamic AI)."
                                 is FastPathResult.Error ->
                                     "Error: ${result.reason}"
                             }
@@ -657,6 +645,7 @@ private fun ControlCard(
     title: String,
     subtitle: String,
     status: String? = null,
+    positiveStatus: Boolean? = null,
     content: @Composable () -> Unit,
 ) {
     Card(
@@ -678,10 +667,11 @@ private fun ControlCard(
                     Text(subtitle, color = Color(0xFF94A3B8))
                 }
                 if (status != null) {
+                    val isPositive = positiveStatus
+                        ?: (status == "Configured" || status == "Connected")
                     Text(
                         text = status.uppercase(),
-                        color = if (status == "Configured") Color(0xFF4ADE80)
-                        else Color(0xFFFCA5A5),
+                        color = if (isPositive) Color(0xFF4ADE80) else Color(0xFFFCA5A5),
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }

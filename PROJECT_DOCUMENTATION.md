@@ -6,10 +6,11 @@ This file is the maintained source of truth for Project Control X. It documents 
 
 ## 1. Project Overview
 
-Control X is a native Kotlin Android voice and screen-control application. It is designed with two execution paths:
+Control X is a native Kotlin Android voice and screen-control application. It is designed with three execution layers:
 
-1. **Fast Path:** deterministic parsing and public Android APIs for low-latency commands.
-2. **Agent Path:** accessibility-screen grounding and a bounded NVIDIA NIM (Nemotron) ReAct loop for complex UI tasks.
+1. **Local Fast-Path:** deterministic parsing and public Android APIs (<30ms offline execution).
+2. **Backend Dynamic Intent Router:** proxies natural-language commands to NVIDIA NIM (`nvidia/nemotron-3-ultra-550b-a55b` default) on the server (`server/`), using zero client-side NVIDIA API keys and mapping to dynamic Android Intents/APIs without requiring Accessibility.
+3. **Optional Agent Path:** accessibility-screen grounding and a bounded ReAct loop proxied through the backend for complex cross-app UI tasks.
 
 The implementation is for modern non-rooted Android devices. It does not claim universal access to every app or setting, because Android sandboxing, secure screens, app policy, device policy, OEM process management, and Play platform rules may block actions.
 
@@ -35,7 +36,7 @@ app/
       GestureExecutor.kt
       ScreenNodeParser.kt
     agent/
-      NvidiaNimApiClient.kt
+      BackendAiClient.kt
       ReActEngine.kt
       SnapshotActionValidator.kt
       UniversalTaskRunner.kt
@@ -50,15 +51,26 @@ app/
     overlay/
       AssistantOverlayManager.kt
       OverlayController.kt
+      OverlayControllerService.kt
     platform/
       AppCatalogManager.kt
+      CommandApiClient.kt
       ContactCatalogManager.kt
-      NvidiaKeyStore.kt
       PermissionRepository.kt
       PermissionSnapshot.kt
       PackageChangeReceiver.kt
     router/
+      AppLauncher.kt
+      ContactCaller.kt
+      DynamicActionExecutor.kt
       FastPathRouter.kt
+      HotspotAutomation.kt
+      MediaPlaybackController.kt
+server/
+  src/main/kotlin/com/controlx/server/
+    DeviceAuthRepository.kt
+    NvidiaNimProxy.kt
+    Server.kt
     security/
       ExecutionGuard.kt
       PaymentSafeMode.kt
@@ -153,15 +165,15 @@ The parser maps ephemeral IDs back to current `AccessibilityNodeInfo` instances.
 - Custom canvas games and native-rendered UI may not expose accessibility nodes.
 - Gesture completion is reported through Android callbacks.
 
-## 8. ReAct Agent Brain
+## 8. Backend AI Proxy & ReAct Agent Brain
 
-`NvidiaNimApiClient` sends a strict JSON-object request (`chat_template_kwargs.enable_thinking = false`) to:
+All AI inference is proxied through the backend server (`server/`), keeping `NVIDIA_API_KEY` hidden in server environment variables rather than inside the APK or on Android devices.
 
-`https://integrate.api.nvidia.com/v1/chat/completions`
+- Android automatically registers a random `deviceId` with `POST /api/v1/devices/register` and receives a per-device bearer token stored in `EncryptedSharedPreferences` (`CommandApiClient`).
+- Unmatched natural-language commands call `POST /api/v1/assistant/interpret`, allowing `NvidiaNimProxy` on the backend to select a typed device intent (`OPEN_APP`, `DIAL_CONTACT`, `DRAFT_SMS`, `PLAY_MEDIA`, `WEB_SEARCH`, `SET_ALARM`, `SET_TIMER`, `TOGGLE_TORCH`, `SET_VOLUME`, `OPEN_SETTINGS`, `LOCK_SCREEN`, `ANSWER_TEXT`, or `NEEDS_SCREEN_AGENT`) executed locally by `DynamicActionExecutor` without Accessibility.
+- Multi-step UI automation (`ReActEngine` via `AgentBrainPort`) calls `POST /api/v1/agent/plan`, where `NvidiaNimProxy` sends a strict JSON request (`chat_template_kwargs.enable_thinking = false`) to:
 
-Default model (editable in the dashboard):
-
-`nvidia/nemotron-3-ultra-550b-a55b`
+`https://integrate.api.nvidia.com/v1/chat/completions` (default model: `nvidia/nemotron-3-ultra-550b-a55b`)
 
 The request includes only the sanitized current snapshot and bounded action history. The response must use:
 
@@ -182,8 +194,9 @@ The request includes only the sanitized current snapshot and bounded action hist
 - History and screen fingerprints detect repeated actions.
 - Unknown action names are rejected.
 - Sensitive nodes and credential/destructive instructions are blocked by policy.
-- API keys must be supplied by the app configuration; they are not stored in source.
-- Screen data must not be sent over the network unless the user explicitly enables the configured LLM path.
+- API keys (`NVIDIA_API_KEY`) must be supplied strictly in the backend server environment; none are stored in Android source or client storage.
+- Per-device bearer tokens and MySQL quota limits (`devices`, `ai_usage_logs`) protect the backend proxy against runaway device usage.
+- Screen data must not be sent over the network unless optional Accessibility is enabled and the user invokes an assistant command that falls through to the agent path.
 
 ## 9. Safety and Kill Switch
 
@@ -195,10 +208,16 @@ The shared `ExecutionGuard` provides a stopped/allowed state.
 - `PaymentSafeModeMonitor` watches accessibility window-state events and identifies payment/banking
   apps from known package prefixes and package-name keywords.
 - Entering a detected payment/banking app immediately stops the shared execution guard, clears the
-  screen snapshot, cancels the active command, and removes both overlay windows.
-- The notification links to Android Accessibility Settings. If a provider blocks simply because
-  Control X's service is enabled, the user must disable it there; Android does not let Control X
-  silently hide or re-enable its enabled-service status.
+  screen snapshot, cancels the active command, and removes both overlay windows. When **AUTO-OFF**
+  is enabled (default ON), `ControlAccessibilityService` also calls `disableSelf()` on Android API 24+
+  so the service itself turns off automatically.
+- The ongoing notification exposes a 1-tap **Disable Accessibility** action as well as a direct link
+  to Android Accessibility Settings. Android does not let third-party apps silently re-enable Accessibility,
+  and if Google Pay / Play Services already cached a security block earlier while Accessibility was ON,
+  clearing Google Pay/Play Services cache and rebooting the device once may still be required.
+- Accessibility is strictly **optional**: Voice, Overlay, App Launching, Contact Dialing, SMS Drafts,
+  Media Search, Alarms, Flashlight, Volume, Device Admin Lock, and Backend Dynamic NLU intents all run
+  with Accessibility turned OFF so daily usage remains compatible with Google Pay / UPI apps.
 - Leaving the detected app does not restore the overlay or resume the cancelled task. The user must
   invoke Control X again. Agent execution checks the safe-mode state before planning and immediately
   before dispatching actions.
@@ -369,6 +388,13 @@ Future development should proceed in this order:
 11. Biometric approval UI for future explicitly allowed high-risk operations.
 
 ## 15. Change Log
+
+### 2026-11-27 — Backend AI Key Hiding, Dynamic Intents & Payment-Safe Accessibility
+
+- Moved all NVIDIA NIM (`nvidia/nemotron-3-ultra-550b-a55b`) API keys and inference calls onto `server/` (`NvidiaNimProxy.kt`, `DeviceAuthRepository.kt`, `Server.kt`) with MySQL `devices` and `ai_usage_logs` per-device token registration (`POST /api/v1/devices/register`) and daily/per-minute quotas.
+- Removed client-side `NvidiaKeyStore` and `NvidiaNimApiClient` from Android so zero `nvapi-...` keys exist in the APK or UI; added `BuildConfig.DEFAULT_BACKEND_URL` plus automatic per-device registration and an optional Server URL card in `MainActivity`.
+- Added dynamic natural-language intent interpretation (`POST /api/v1/assistant/interpret` + `DynamicActionExecutor`) supporting `DRAFT_SMS`, `OPEN_APP`, `DIAL_CONTACT`, `PLAY_MEDIA`, `SET_ALARM`, `SET_TIMER`, `WEB_SEARCH`, `TOGGLE_TORCH`, `SET_VOLUME`, `OPEN_SETTINGS`, `LOCK_SCREEN`, and `ANSWER_TEXT` on any phone without Accessibility.
+- Made Accessibility strictly optional for Google Pay / UPI safety, added automatic `disableSelf()` in `ControlAccessibilityService` when entering detected payment apps (`AUTO-OFF: ON` default), added 1-tap **Disable Accessibility** in `OverlayControllerService` notification and `MainActivity`, and added backend + Android unit tests (`ServerProxyTest.kt`, `AgentContractTest.kt`).
 
 ### 2026-11-27 — Replace Groq AI with NVIDIA NIM (Nemotron)
 

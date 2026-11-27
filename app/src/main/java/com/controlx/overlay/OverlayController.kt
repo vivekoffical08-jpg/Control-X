@@ -2,17 +2,25 @@ package com.controlx.overlay
 
 import android.content.Context
 import android.provider.Settings
-import com.controlx.domain.FastPathResult
-import com.controlx.input.VoiceInputManager
-import com.controlx.router.FastPathRouter
-import com.controlx.security.ExecutionGuard
-import com.controlx.platform.NvidiaKeyStore
-import com.controlx.platform.CommandApiClient
+import com.controlx.accessibility.ControlAccessibilityService
+import com.controlx.agent.BackendAiClient
+import com.controlx.agent.DeviceCapabilities
 import com.controlx.agent.UniversalTaskRunner
 import com.controlx.agent.UniversalTaskRunner.TaskResult
-import com.controlx.security.SensitiveActionPolicy
-import com.controlx.security.SensitiveActionDecision
+import com.controlx.domain.AgentAction
+import com.controlx.domain.FastPathResult
+import com.controlx.input.VoiceInputManager
+import com.controlx.platform.AppCatalogManager
+import com.controlx.platform.CommandApiClient
+import com.controlx.platform.PermissionRepository
+import com.controlx.router.DynamicActionExecutor
+import com.controlx.router.DynamicExecutionResult
+import com.controlx.router.FastPathRouter
+import com.controlx.security.ExecutionGuard
 import com.controlx.security.PaymentSafeModeMonitor
+import com.controlx.security.SensitiveActionDecision
+import com.controlx.security.SensitiveActionPolicy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,8 +30,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.controlx.domain.AgentAction
-import kotlinx.coroutines.CompletableDeferred
 
 class OverlayController(
     context: Context,
@@ -33,15 +39,11 @@ class OverlayController(
     private val manager = AssistantOverlayManager(appContext, executionGuard)
     private val voiceInput by lazy { VoiceInputManager(appContext) }
     private val router = FastPathRouter(appContext)
-    private val nvidiaKeyStore by lazy { NvidiaKeyStore(appContext) }
+    private val dynamicExecutor = DynamicActionExecutor(router)
     private val commandApiClient by lazy { CommandApiClient(appContext) }
-    private val taskRunner by lazy {
-        UniversalTaskRunner(
-            context = appContext,
-            apiKeyProvider = { nvidiaKeyStore.load() },
-            modelProvider = { nvidiaKeyStore.loadModel() },
-        )
-    }
+    private val backendAiClient by lazy { BackendAiClient(commandApiClient) }
+    private val taskRunner by lazy { UniversalTaskRunner(appContext, commandApiClient) }
+    private val permissionRepository by lazy { PermissionRepository(appContext) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listeningForCompletion = false
     private val sensitiveActionPolicy = SensitiveActionPolicy()
@@ -149,7 +151,6 @@ class OverlayController(
             }
             SensitiveActionDecision.Allowed -> Unit
         }
-        if (!listeningForCompletion) listeningForCompletion = true
         listeningForCompletion = false
         voiceInput.stopListening()
         manager.setState(OverlayState.PARSING)
@@ -161,6 +162,131 @@ class OverlayController(
         }
         val elapsed = (System.nanoTime() - started) / 1_000_000
 
+        logCommandAsync(command, result, elapsed)
+
+        if (executionGuard.checkCanContinue().let { it is com.controlx.security.GuardResult.Blocked }) {
+            dismissImmediate()
+            return
+        }
+
+        when (result) {
+            is FastPathResult.Executed -> {
+                manager.setState(OverlayState.EXECUTING)
+                manager.updateTranscript("✓ ${result.message}", elapsed)
+                if (Regex("""(?i)^play\b""").containsMatchIn(command) &&
+                    ControlAccessibilityService.isActive() &&
+                    backendAiClient.isConfigured()
+                ) {
+                    runYouTubeSelectionIfAccessible(command, elapsed)
+                }
+                delay(800)
+                dismiss()
+            }
+            FastPathResult.Unhandled -> handleWithBackendOrAgent(command, started)
+            is FastPathResult.Error -> {
+                manager.setState(OverlayState.PARSING)
+                manager.updateTranscript("✕ ${result.reason}", elapsed)
+            }
+        }
+    }
+
+    private suspend fun handleWithBackendOrAgent(command: String, startedNs: Long) {
+        if (!backendAiClient.isConfigured()) {
+            val elapsed = (System.nanoTime() - startedNs) / 1_000_000
+            manager.setState(OverlayState.PARSING)
+            manager.updateTranscript(
+                "✕ Command not recognized offline. Connect a Control X backend server in Settings for dynamic AI.",
+                elapsed,
+            )
+            return
+        }
+
+        manager.setState(OverlayState.PARSING)
+        val interpreted = runCatching {
+            withContext(Dispatchers.IO) {
+                if (AppCatalogManager.snapshot().isEmpty()) {
+                    AppCatalogManager.refresh(appContext)
+                }
+                val perms = permissionRepository.snapshot()
+                backendAiClient.interpretIntent(
+                    command = command,
+                    installedApps = AppCatalogManager.snapshot(),
+                    capabilities = DeviceCapabilities(
+                        contactsGranted = perms.contactsGranted,
+                        accessibilityEnabled = ControlAccessibilityService.isActive(),
+                        deviceAdminActive = perms.deviceAdminActive,
+                    ),
+                )
+            }
+        }
+
+        val elapsed = (System.nanoTime() - startedNs) / 1_000_000
+        if (interpreted.isFailure) {
+            val message = interpreted.exceptionOrNull()?.message ?: "Backend AI request failed."
+            manager.updateTranscript("✕ $message", elapsed)
+            return
+        }
+
+        when (val outcome = dynamicExecutor.execute(interpreted.getOrThrow(), command)) {
+            is DynamicExecutionResult.Executed -> {
+                manager.setState(OverlayState.EXECUTING)
+                manager.updateTranscript("✓ ${outcome.message}", elapsed)
+                delay(if (outcome.keepVisibleLonger) 4000 else 800)
+                dismiss()
+            }
+            is DynamicExecutionResult.NeedsScreenAgent -> {
+                val agentResult = taskRunner.run(outcome.goal) { action ->
+                    requestAgentActionApproval(action)
+                }
+                val totalElapsed = (System.nanoTime() - startedNs) / 1_000_000
+                when (agentResult) {
+                    is TaskResult.Executed -> {
+                        manager.setState(OverlayState.EXECUTING)
+                        manager.updateTranscript("✓ ${agentResult.message}", totalElapsed)
+                        delay(800)
+                        dismiss()
+                    }
+                    is TaskResult.Error -> {
+                        manager.setState(OverlayState.PARSING)
+                        manager.updateTranscript("✕ ${agentResult.reason}", totalElapsed)
+                    }
+                }
+            }
+            is DynamicExecutionResult.Error -> {
+                manager.setState(OverlayState.PARSING)
+                manager.updateTranscript("✕ ${outcome.reason}", elapsed)
+            }
+        }
+    }
+
+    private suspend fun runYouTubeSelectionIfAccessible(command: String, elapsed: Long) {
+        manager.updateTranscript(
+            "✓ Opening playback and selecting the first accessible match.",
+            elapsed,
+        )
+        val query = Regex("""(?i)^play\s+(.+)$""")
+            .find(command)
+            ?.groupValues
+            ?.get(1)
+            ?.trim()
+            .orEmpty()
+        val mediaGoal =
+            "In the currently open YouTube or browser media screen, search for $query, wait for results, and play the first clearly matching video or track."
+        val agentResult = taskRunner.run(mediaGoal) { action ->
+            action.action.name != "TYPE" ||
+                !action.textInput.orEmpty().contains(
+                    Regex("""(?i)(password|pin|otp|cvv|secret)"""),
+                )
+        }
+        when (agentResult) {
+            is TaskResult.Executed ->
+                manager.updateTranscript("✓ Media result selected.", elapsed)
+            is TaskResult.Error ->
+                manager.updateTranscript("✕ ${agentResult.reason}", elapsed)
+        }
+    }
+
+    private fun logCommandAsync(command: String, result: FastPathResult, elapsed: Long) {
         val recordStatus = when (result) {
             is FastPathResult.Executed -> "executed"
             FastPathResult.Unhandled -> "unhandled"
@@ -168,7 +294,7 @@ class OverlayController(
         }
         val recordMessage = when (result) {
             is FastPathResult.Executed -> result.message
-            FastPathResult.Unhandled -> "No Fast-Path match."
+            FastPathResult.Unhandled -> "Forwarded to dynamic backend router."
             is FastPathResult.Error -> result.reason
         }
         scope.launch(Dispatchers.IO) {
@@ -180,69 +306,6 @@ class OverlayController(
                     resultMessage = recordMessage,
                     latencyMs = elapsed,
                 )
-            }
-        }
-
-        if (executionGuard.checkCanContinue().let { it is com.controlx.security.GuardResult.Blocked }) {
-            dismissImmediate()
-            return
-        }
-
-        when (result) {
-            is FastPathResult.Executed -> {
-                manager.setState(OverlayState.EXECUTING)
-                manager.updateTranscript("✓ ${result.message}", elapsed)
-                if (Regex("""(?i)^play\b""").containsMatchIn(command)) {
-                    manager.updateTranscript(
-                        "✓ ${result.message} Searching and selecting the first result.",
-                        elapsed,
-                    )
-                    val mediaGoal =
-                        "In the currently open YouTube or browser media screen, search for ${
-                            Regex("""(?i)^play\s+(.+)$""")
-                                .find(command)
-                                ?.groupValues
-                                ?.get(1)
-                                ?.trim()
-                                .orEmpty()
-                        }, wait for results, and play the first clearly matching video or track."
-                    val agentResult = taskRunner.run(mediaGoal) { action ->
-                        action.action.name != "TYPE" ||
-                            !action.textInput.orEmpty().contains(
-                                Regex("""(?i)(password|pin|otp|cvv|secret)"""),
-                            )
-                    }
-                    when (agentResult) {
-                        is TaskResult.Executed ->
-                            manager.updateTranscript("✓ Media result selected.", elapsed)
-                        is TaskResult.Error ->
-                            manager.updateTranscript("✕ ${agentResult.reason}", elapsed)
-                    }
-                }
-                delay(800)
-                dismiss()
-            }
-            FastPathResult.Unhandled -> {
-                manager.setState(OverlayState.PARSING)
-                val agentResult = taskRunner.run(command) { action ->
-                    requestAgentActionApproval(action)
-                }
-                when (agentResult) {
-                    is TaskResult.Executed -> {
-                        manager.setState(OverlayState.EXECUTING)
-                        manager.updateTranscript("✓ ${agentResult.message}", elapsed)
-                        delay(800)
-                        dismiss()
-                    }
-                    is TaskResult.Error -> {
-                        manager.setState(OverlayState.PARSING)
-                        manager.updateTranscript("✕ ${agentResult.reason}", elapsed)
-                    }
-                }
-            }
-            is FastPathResult.Error -> {
-                manager.setState(OverlayState.PARSING)
-                manager.updateTranscript("✕ ${result.reason}", elapsed)
             }
         }
     }

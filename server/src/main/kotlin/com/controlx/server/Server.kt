@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.sql.Connection
 import java.sql.DriverManager
+import java.util.concurrent.Executors
 
 data class CommandRecord(
     val deviceId: String,
@@ -24,6 +25,12 @@ data class AppInventoryRecord(
 data class AppInventoryPayload(
     val deviceId: String,
     val apps: List<AppInventoryRecord>,
+)
+
+data class DeviceRegisterPayload(
+    val deviceId: String,
+    val appVersion: String? = null,
+    val deviceModel: String? = null,
 )
 
 class MysqlCommandRepository(
@@ -93,31 +100,191 @@ class MysqlAppInventoryRepository(
 }
 
 fun main() {
-    val host = System.getenv("MYSQL_HOST") ?: "127.0.0.1"
-    val port = System.getenv("MYSQL_PORT") ?: "3306"
-    val database = System.getenv("MYSQL_DATABASE") ?: "controlx"
-    val user = System.getenv("MYSQL_USER") ?: "controlx_app"
+    val host = System.getenv("MYSQL_HOST") ?: System.getenv("MYSQLHOST") ?: "127.0.0.1"
+    val port = System.getenv("MYSQL_PORT") ?: System.getenv("MYSQLPORT") ?: "3306"
+    val database = System.getenv("MYSQL_DATABASE") ?: System.getenv("MYSQLDATABASE") ?: "controlx"
+    val user = System.getenv("MYSQL_USER") ?: System.getenv("MYSQLUSER") ?: "controlx_app"
     val password = System.getenv("MYSQL_PASSWORD")
+        ?: System.getenv("MYSQLPASSWORD")
         ?: error("MYSQL_PASSWORD must be configured")
-    val apiToken = System.getenv("CONTROLX_API_TOKEN")
-        ?: error("CONTROLX_API_TOKEN must be configured")
-    val serverPort = System.getenv("CONTROLX_SERVER_PORT")?.toIntOrNull() ?: 8080
+    val adminToken = System.getenv("CONTROLX_API_TOKEN")?.trim()?.takeIf { it.isNotEmpty() }
+    val nvidiaApiKey = System.getenv("NVIDIA_API_KEY")?.trim()?.takeIf { it.isNotEmpty() }
+    val nvidiaModel = System.getenv("NVIDIA_MODEL")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: NvidiaNimProxy.DEFAULT_MODEL
+    val dailyQuota = System.getenv("AI_DAILY_QUOTA_PER_DEVICE")?.toIntOrNull() ?: 150
+    val burstPerMinute = System.getenv("AI_BURST_PER_MINUTE")?.toIntOrNull() ?: 20
+    val serverPort = (System.getenv("CONTROLX_SERVER_PORT") ?: System.getenv("PORT"))
+        ?.toIntOrNull()
+        ?: 8080
+    val useSsl = System.getenv("MYSQL_USE_SSL")?.equals("true", ignoreCase = true) == true
 
-    val jdbcUrl = "jdbc:mysql://$host:$port/$database?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+    val jdbcUrl =
+        "jdbc:mysql://$host:$port/$database?useSSL=$useSsl&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+    val authRepository = DeviceAuthRepository(
+        jdbcUrl = jdbcUrl,
+        user = user,
+        password = password,
+        defaultDailyQuota = dailyQuota,
+        maxPerMinute = burstPerMinute,
+    ).apply { ensureSchema() }
     val repository = MysqlCommandRepository(jdbcUrl, user, password)
-    val inventoryRepository =
-        MysqlAppInventoryRepository(jdbcUrl, user, password)
+    val inventoryRepository = MysqlAppInventoryRepository(jdbcUrl, user, password)
+    val nimProxy = NvidiaNimProxy(apiKey = nvidiaApiKey, model = nvidiaModel)
     val gson = Gson()
     val server = HttpServer.create(InetSocketAddress(serverPort), 0)
 
     server.createContext("/health") { exchange ->
-        exchange.sendJson(200, mapOf("status" to "ok"))
+        exchange.sendJson(
+            200,
+            mapOf(
+                "status" to "ok",
+                "aiConfigured" to nimProxy.isConfigured(),
+                "model" to nimProxy.model,
+            ),
+        )
     }
-    server.createContext("/api/v1/commands") { exchange ->
-        if (!exchange.authorized(apiToken)) {
-            exchange.sendJson(401, mapOf("error" to "Unauthorized"))
+
+    server.createContext("/api/v1/devices/register") { exchange ->
+        if (exchange.requestMethod != "POST") {
+            exchange.sendJson(405, mapOf("error" to "Method not allowed"))
             return@createContext
         }
+        try {
+            val payload = gson.fromJson(
+                exchange.requestBody.reader(Charsets.UTF_8).readText(),
+                DeviceRegisterPayload::class.java,
+            )
+            require(payload.deviceId.isNotBlank()) { "deviceId is required" }
+            val registered = authRepository.registerNewDevice(
+                deviceId = payload.deviceId,
+                appVersion = payload.appVersion,
+                deviceModel = payload.deviceModel,
+            )
+            if (registered == null) {
+                exchange.sendJson(
+                    409,
+                    mapOf("error" to "Device ID is already registered; generate a new device ID."),
+                )
+            } else {
+                exchange.sendJson(
+                    201,
+                    mapOf(
+                        "deviceId" to registered.deviceId,
+                        "deviceToken" to registered.deviceToken,
+                        "dailyQuota" to registered.dailyQuota,
+                        "aiConfigured" to nimProxy.isConfigured(),
+                    ),
+                )
+            }
+        } catch (error: Exception) {
+            exchange.sendJson(
+                400,
+                mapOf("error" to (error.message ?: "Invalid device registration payload")),
+            )
+        }
+    }
+
+    server.createContext("/api/v1/assistant/interpret") { exchange ->
+        if (exchange.requestMethod != "POST") {
+            exchange.sendJson(405, mapOf("error" to "Method not allowed"))
+            return@createContext
+        }
+        val started = System.nanoTime()
+        try {
+            val payload = gson.fromJson(
+                exchange.requestBody.reader(Charsets.UTF_8).readText(),
+                IntentInterpretRequest::class.java,
+            )
+            val auth = authRepository.authenticateBearer(
+                bearerToken = exchange.bearerToken(),
+                adminToken = adminToken,
+                claimedDeviceId = payload.deviceId,
+            )
+            if (auth is AuthDecision.Unauthorized) {
+                exchange.sendJson(401, mapOf("error" to auth.reason))
+                return@createContext
+            }
+            val deviceId = (auth as AuthDecision.AuthorizedDevice).deviceId
+            require(payload.command.isNotBlank()) { "command is required" }
+            if (!nimProxy.isConfigured()) {
+                exchange.sendJson(503, mapOf("error" to "Backend AI service is not configured."))
+                return@createContext
+            }
+            val quota = authRepository.checkAiQuota(deviceId)
+            if (quota is QuotaDecision.Exceeded) {
+                exchange.sendJson(429, mapOf("error" to quota.reason))
+                return@createContext
+            }
+            val interpreted = nimProxy.interpretIntent(payload)
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            authRepository.logAiUsage(
+                deviceId = deviceId,
+                endpoint = "interpret",
+                model = nimProxy.model,
+                promptChars = payload.command.length,
+                latencyMs = elapsedMs,
+                status = interpreted.intent,
+            )
+            exchange.sendJson(200, interpreted)
+        } catch (error: Exception) {
+            exchange.sendJson(
+                400,
+                mapOf("error" to (error.message ?: "Failed to interpret command")),
+            )
+        }
+    }
+
+    server.createContext("/api/v1/agent/plan") { exchange ->
+        if (exchange.requestMethod != "POST") {
+            exchange.sendJson(405, mapOf("error" to "Method not allowed"))
+            return@createContext
+        }
+        val started = System.nanoTime()
+        try {
+            val payload = gson.fromJson(
+                exchange.requestBody.reader(Charsets.UTF_8).readText(),
+                AgentPlanRequest::class.java,
+            )
+            val auth = authRepository.authenticateBearer(
+                bearerToken = exchange.bearerToken(),
+                adminToken = adminToken,
+                claimedDeviceId = payload.deviceId,
+            )
+            if (auth is AuthDecision.Unauthorized) {
+                exchange.sendJson(401, mapOf("error" to auth.reason))
+                return@createContext
+            }
+            val deviceId = (auth as AuthDecision.AuthorizedDevice).deviceId
+            require(payload.goal.isNotBlank()) { "goal is required" }
+            if (!nimProxy.isConfigured()) {
+                exchange.sendJson(503, mapOf("error" to "Backend AI service is not configured."))
+                return@createContext
+            }
+            val quota = authRepository.checkAiQuota(deviceId)
+            if (quota is QuotaDecision.Exceeded) {
+                exchange.sendJson(429, mapOf("error" to quota.reason))
+                return@createContext
+            }
+            val plan = nimProxy.planReActStep(payload)
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            authRepository.logAiUsage(
+                deviceId = deviceId,
+                endpoint = "agent_plan",
+                model = nimProxy.model,
+                promptChars = payload.goal.length + payload.snapshot.nodes.size * 32,
+                latencyMs = elapsedMs,
+                status = plan.action,
+            )
+            exchange.sendJson(200, plan)
+        } catch (error: Exception) {
+            exchange.sendJson(
+                400,
+                mapOf("error" to (error.message ?: "Failed to plan next action")),
+            )
+        }
+    }
+
+    server.createContext("/api/v1/commands") { exchange ->
         if (exchange.requestMethod != "POST") {
             exchange.sendJson(405, mapOf("error" to "Method not allowed"))
             return@createContext
@@ -127,6 +294,15 @@ fun main() {
                 exchange.requestBody.reader(Charsets.UTF_8).readText(),
                 CommandRecord::class.java,
             )
+            val auth = authRepository.authenticateBearer(
+                bearerToken = exchange.bearerToken(),
+                adminToken = adminToken,
+                claimedDeviceId = record.deviceId,
+            )
+            if (auth is AuthDecision.Unauthorized) {
+                exchange.sendJson(401, mapOf("error" to auth.reason))
+                return@createContext
+            }
             require(record.deviceId.isNotBlank()) { "deviceId is required" }
             require(record.commandText.isNotBlank()) { "commandText is required" }
             repository.insert(record)
@@ -138,11 +314,8 @@ fun main() {
             )
         }
     }
+
     server.createContext("/api/v1/app-inventory") { exchange ->
-        if (!exchange.authorized(apiToken)) {
-            exchange.sendJson(401, mapOf("error" to "Unauthorized"))
-            return@createContext
-        }
         if (exchange.requestMethod != "POST") {
             exchange.sendJson(405, mapOf("error" to "Method not allowed"))
             return@createContext
@@ -152,6 +325,15 @@ fun main() {
                 exchange.requestBody.reader(Charsets.UTF_8).readText(),
                 AppInventoryPayload::class.java,
             )
+            val auth = authRepository.authenticateBearer(
+                bearerToken = exchange.bearerToken(),
+                adminToken = adminToken,
+                claimedDeviceId = payload.deviceId,
+            )
+            if (auth is AuthDecision.Unauthorized) {
+                exchange.sendJson(401, mapOf("error" to auth.reason))
+                return@createContext
+            }
             require(payload.deviceId.isNotBlank()) { "deviceId is required" }
             inventoryRepository.replace(payload.deviceId, payload.apps)
             exchange.sendJson(
@@ -169,15 +351,21 @@ fun main() {
         }
     }
 
-    server.executor = null
+    server.executor = Executors.newFixedThreadPool(16)
     server.start()
     Runtime.getRuntime().addShutdownHook(Thread {
         server.stop(0)
     })
 }
 
-private fun HttpExchange.authorized(expectedToken: String): Boolean =
-    requestHeaders.getFirst("Authorization") == "Bearer $expectedToken"
+private fun HttpExchange.bearerToken(): String? {
+    val header = requestHeaders.getFirst("Authorization") ?: return null
+    return if (header.startsWith("Bearer ", ignoreCase = true)) {
+        header.substring(7).trim()
+    } else {
+        null
+    }
+}
 
 private fun HttpExchange.sendJson(status: Int, body: Any) {
     val gson = Gson()

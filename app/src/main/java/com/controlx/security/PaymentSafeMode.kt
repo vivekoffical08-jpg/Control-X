@@ -31,6 +31,7 @@ object PaymentAppPolicy {
 data class PaymentSafeModeState(
     val active: Boolean = false,
     val packageName: String? = null,
+    val accessibilityAutoDisabled: Boolean = false,
 )
 
 class PaymentSafeModeMonitor {
@@ -46,13 +47,21 @@ class PaymentSafeModeMonitor {
     fun onForegroundPackageChanged(packageName: String?) {
         val normalized = packageName?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return
         if (PaymentAppPolicy.matches(normalized)) {
-            _state.value = PaymentSafeModeState(active = true, packageName = normalized)
+            _state.value = PaymentSafeModeState(
+                active = true,
+                packageName = normalized,
+                accessibilityAutoDisabled = _state.value.accessibilityAutoDisabled,
+            )
         } else if (!normalized.startsWith("com.android.systemui") &&
             normalized != "android" &&
             _state.value.active
         ) {
             _state.value = PaymentSafeModeState()
         }
+    }
+
+    fun markAccessibilityDisabled() {
+        _state.value = _state.value.copy(accessibilityAutoDisabled = true)
     }
 
     fun reset() {

@@ -1,18 +1,20 @@
 package com.controlx.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.view.KeyEvent
-import com.controlx.security.ExecutionGuard
-import com.controlx.security.PaymentSafeModeMonitor
-import com.controlx.security.PaymentAppPolicy
-import com.controlx.security.SafetyGuardian
-import com.controlx.security.SafetyVerdict
-import com.controlx.security.SensitiveActionPolicy
-import com.controlx.security.SensitiveActionDecision
 import com.controlx.domain.ActionType
 import com.controlx.domain.AgentAction
+import com.controlx.platform.CommandApiClient
+import com.controlx.security.ExecutionGuard
+import com.controlx.security.PaymentAppPolicy
+import com.controlx.security.PaymentSafeModeMonitor
+import com.controlx.security.SafetyGuardian
+import com.controlx.security.SafetyVerdict
+import com.controlx.security.SensitiveActionDecision
+import com.controlx.security.SensitiveActionPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,12 +22,36 @@ import kotlinx.coroutines.flow.asStateFlow
 class ControlAccessibilityService : AccessibilityService() {
     companion object {
         val executionGuard = ExecutionGuard.shared
+
         @Volatile
         private var activeInstance: ControlAccessibilityService? = null
+
+        @Volatile
+        private var autoDisableOnPayment: Boolean = true
 
         fun isActive(): Boolean = activeInstance != null
 
         fun activeInstance(): ControlAccessibilityService? = activeInstance
+
+        fun syncAutoDisableOnPayment(context: Context) {
+            autoDisableOnPayment = runCatching {
+                CommandApiClient(context).autoDisableAccessibilityOnPayment()
+            }.getOrDefault(true)
+        }
+
+        fun setAutoDisableOnPayment(enabled: Boolean) {
+            autoDisableOnPayment = enabled
+        }
+
+        fun disableForPaymentSafety(): Boolean {
+            val service = activeInstance ?: return false
+            service.clearScreenNodes()
+            executionGuard.stop()
+            PaymentSafeModeMonitor.shared.markAccessibilityDisabled()
+            activeInstance = null
+            runCatching { service.disableSelf() }
+            return true
+        }
 
         fun performGlobalAction(action: Int): Boolean =
             activeInstance?.performGlobalAction(action) == true
@@ -43,14 +69,14 @@ class ControlAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeInstance = this
-        PaymentSafeModeMonitor.shared.onForegroundPackageChanged(
-            rootInActiveWindow?.packageName?.toString(),
-        )
+        syncAutoDisableOnPayment(this)
+        handleForegroundSafety(rootInActiveWindow?.packageName?.toString())
     }
 
     private val _snapshot = MutableStateFlow<AccessibilitySnapshot?>(null)
     val snapshot: StateFlow<AccessibilitySnapshot?> = _snapshot.asStateFlow()
     private val nodeParser = ScreenNodeParser()
+
     @Volatile
     private var foregroundActivityName: String? = null
 
@@ -60,7 +86,10 @@ class ControlAccessibilityService : AccessibilityService() {
     fun resolveNode(nodeId: String): AccessibilityNodeInfo? =
         nodeParser.resolveNode(nodeId)
 
-    fun clearScreenNodes() = nodeParser.clear()
+    fun clearScreenNodes() {
+        _snapshot.value = null
+        nodeParser.clear()
+    }
 
     fun typeIntoFocusedNode(text: String): Boolean {
         if (text.isBlank() || PaymentSafeModeMonitor.shared.isActive) return false
@@ -103,17 +132,12 @@ class ControlAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val safeMode = PaymentSafeModeMonitor.shared
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            safeMode.onForegroundPackageChanged(event.packageName?.toString())
             foregroundActivityName = event.className?.toString()
-            if (safeMode.isActive) {
-                executionGuard.stop()
-            }
+            handleForegroundSafety(event.packageName?.toString())
         }
-        if (safeMode.isActive) {
-            _snapshot.value = null
-            nodeParser.clear()
+        if (PaymentSafeModeMonitor.shared.isActive) {
+            clearScreenNodes()
             return
         }
         val root = rootInActiveWindow ?: return
@@ -123,9 +147,22 @@ class ControlAccessibilityService : AccessibilityService() {
         )
     }
 
+    private fun handleForegroundSafety(packageName: String?) {
+        val safeMode = PaymentSafeModeMonitor.shared
+        safeMode.onForegroundPackageChanged(packageName)
+        if (!safeMode.isActive) return
+
+        executionGuard.stop()
+        clearScreenNodes()
+        if (autoDisableOnPayment) {
+            safeMode.markAccessibilityDisabled()
+            if (activeInstance === this) activeInstance = null
+            runCatching { disableSelf() }
+        }
+    }
+
     override fun onInterrupt() {
-        _snapshot.value = null
-        nodeParser.clear()
+        clearScreenNodes()
     }
 
     override fun onDestroy() {
