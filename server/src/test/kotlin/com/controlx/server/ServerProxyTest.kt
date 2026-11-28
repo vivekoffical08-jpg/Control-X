@@ -47,6 +47,18 @@ class ServerProxyTest {
         assertEquals("cx_3", plan.targetNodeId)
     }
 
+    @Test
+    fun parseIntentResponseSupportsInAppExecutionIntents() {
+        val proxy = NvidiaNimProxy(apiKey = "test-key")
+        val raw = """{"intent":"WHATSAPP_MESSAGE","thought":"Message Rahul","contactQuery":"Rahul","messageText":"Reached home"}"""
+
+        val result = proxy.parseIntentResponse(raw)
+
+        assertEquals("WHATSAPP_MESSAGE", result.intent)
+        assertEquals("Rahul", result.contactQuery)
+        assertEquals("Reached home", result.messageText)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun parseIntentResponseRejectsUnknownIntent() {
         val proxy = NvidiaNimProxy(apiKey = "test-key")

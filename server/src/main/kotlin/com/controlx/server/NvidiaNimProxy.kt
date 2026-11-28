@@ -37,9 +37,13 @@ data class InterpretedIntentResponse(
     val appName: String? = null,
     val contactQuery: String? = null,
     val messageText: String? = null,
+    val emailSubject: String? = null,
+    val calendarTitle: String? = null,
     val mediaQuery: String? = null,
     val mediaPlatform: String? = null,
     val searchQuery: String? = null,
+    val navigate: Boolean? = null,
+    val cameraVideo: Boolean? = null,
     val alarmHour: Int? = null,
     val alarmMinute: Int? = null,
     val timerSeconds: Int? = null,
@@ -122,20 +126,29 @@ class NvidiaNimProxy(
         val systemPrompt = """
             You are Control X, an Android device assistant intent router running securely on the backend.
             Return ONE valid JSON object only (no markdown fences, no thinking tags) with keys:
-            intent, thought, appPackage, appName, contactQuery, messageText, mediaQuery, mediaPlatform,
-            searchQuery, alarmHour, alarmMinute, timerSeconds, torchEnabled, volumeStream, volumePercent,
-            volumeDirection, settingsTarget, answerText, agentGoal.
+            intent, thought, appPackage, appName, contactQuery, messageText, emailSubject, calendarTitle,
+            mediaQuery, mediaPlatform, searchQuery, navigate, cameraVideo, alarmHour, alarmMinute,
+            timerSeconds, torchEnabled, volumeStream, volumePercent, volumeDirection, settingsTarget,
+            answerText, agentGoal.
 
             Allowed intent values:
-            OPEN_APP, DIAL_CONTACT, DRAFT_SMS, PLAY_MEDIA, WEB_SEARCH, SET_ALARM, SET_TIMER,
-            TOGGLE_TORCH, SET_VOLUME, OPEN_SETTINGS, LOCK_SCREEN, ANSWER_TEXT, NEEDS_SCREEN_AGENT, BLOCKED.
+            OPEN_APP, DIAL_CONTACT, DRAFT_SMS, WHATSAPP_MESSAGE, DRAFT_EMAIL, IN_APP_SEARCH,
+            MAPS_ACTION, OPEN_CAMERA, CREATE_CALENDAR_EVENT, PLAY_MEDIA, WEB_SEARCH,
+            SET_ALARM, SET_TIMER, TOGGLE_TORCH, SET_VOLUME, OPEN_SETTINGS, LOCK_SCREEN,
+            ANSWER_TEXT, NEEDS_SCREEN_AGENT, BLOCKED.
 
             Rules:
             - Match apps ONLY from installedApps when picking appPackage/appName.
-            - Use DIAL_CONTACT for calling; use DRAFT_SMS when user wants to message/text/SMS a contact.
+            - Use WHATSAPP_MESSAGE when user wants to message/send text on WhatsApp (populate contactQuery & messageText).
+            - Use IN_APP_SEARCH when user wants to search inside a specific installed app (e.g., Amazon, Flipkart, YouTube, Telegram, Settings, Chrome; populate appPackage/appName & searchQuery).
+            - Use MAPS_ACTION for maps search or turn-by-turn directions (searchQuery + navigate true/false).
+            - Use DRAFT_EMAIL for composing email (contactQuery + emailSubject + messageText).
+            - Use OPEN_CAMERA for taking photos or recording video (cameraVideo true/false).
+            - Use CREATE_CALENDAR_EVENT for scheduling/adding reminders or calendar events (calendarTitle + messageText).
+            - Use DIAL_CONTACT for calling; use DRAFT_SMS for SMS/text message outside WhatsApp.
             - Use OPEN_SETTINGS with settingsTarget in (wifi, bluetooth, display, hotspot, dnd, notifications, accessibility).
             - Use ANSWER_TEXT for general knowledge, math, chat, or Q&A that needs no phone action.
-            - Use NEEDS_SCREEN_AGENT ONLY if the task genuinely requires clicking/typing/scrolling inside a third-party app screen.
+            - Use NEEDS_SCREEN_AGENT ONLY if the task genuinely requires clicking/typing/scrolling inside an app's UI beyond deep links (set appPackage/appName if opening an app first + clear agentGoal).
             - Use BLOCKED immediately for passwords, PINs, OTPs, CVVs, banking, UPI payments, transfers, purchases, or wiping data.
         """.trimIndent()
         val userPayload = gson.toJson(
@@ -279,9 +292,13 @@ class NvidiaNimProxy(
             appName = json.optString("appName"),
             contactQuery = json.optString("contactQuery"),
             messageText = json.optString("messageText"),
+            emailSubject = json.optString("emailSubject"),
+            calendarTitle = json.optString("calendarTitle"),
             mediaQuery = json.optString("mediaQuery"),
             mediaPlatform = json.optString("mediaPlatform"),
             searchQuery = json.optString("searchQuery"),
+            navigate = json.optBoolean("navigate"),
+            cameraVideo = json.optBoolean("cameraVideo"),
             alarmHour = json.optInt("alarmHour"),
             alarmMinute = json.optInt("alarmMinute"),
             timerSeconds = json.optInt("timerSeconds"),
@@ -394,6 +411,12 @@ class NvidiaNimProxy(
             "OPEN_APP",
             "DIAL_CONTACT",
             "DRAFT_SMS",
+            "WHATSAPP_MESSAGE",
+            "DRAFT_EMAIL",
+            "IN_APP_SEARCH",
+            "MAPS_ACTION",
+            "OPEN_CAMERA",
+            "CREATE_CALENDAR_EVENT",
             "PLAY_MEDIA",
             "WEB_SEARCH",
             "SET_ALARM",

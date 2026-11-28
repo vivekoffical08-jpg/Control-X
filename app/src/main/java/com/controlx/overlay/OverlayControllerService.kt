@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.controlx.accessibility.ControlAccessibilityService
+import com.controlx.platform.CommandApiClient
 import com.controlx.security.PaymentSafeModeMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,8 @@ class OverlayControllerService : Service() {
         const val ACTION_SHOW = "com.controlx.overlay.SHOW"
         const val ACTION_HIDE = "com.controlx.overlay.HIDE"
         const val ACTION_DISABLE_ACCESSIBILITY = "com.controlx.overlay.DISABLE_ACCESSIBILITY"
+        const val ACTION_ENABLE_BUBBLE = "com.controlx.overlay.ENABLE_BUBBLE"
+        const val ACTION_DISABLE_BUBBLE = "com.controlx.overlay.DISABLE_BUBBLE"
         private const val CHANNEL_ID = "controlx_assistant"
         private const val NOTIFICATION_ID = 1701
 
@@ -36,15 +39,37 @@ class OverlayControllerService : Service() {
         }
 
         fun stop(context: Context) {
-            context.startService(
-                Intent(context, OverlayControllerService::class.java).apply {
-                    action = ACTION_HIDE
-                },
-            )
+            runCatching {
+                context.startService(
+                    Intent(context, OverlayControllerService::class.java).apply {
+                        action = ACTION_HIDE
+                    },
+                )
+            }
+        }
+
+        fun enableBubble(context: Context) {
+            val intent = Intent(context, OverlayControllerService::class.java).apply {
+                action = ACTION_ENABLE_BUBBLE
+            }
+            context.startForegroundService(intent)
+        }
+
+        fun disableBubble(context: Context) {
+            runCatching {
+                context.startService(
+                    Intent(context, OverlayControllerService::class.java).apply {
+                        action = ACTION_DISABLE_BUBBLE
+                    },
+                )
+            }
         }
     }
 
+    private val commandApiClient by lazy { CommandApiClient(applicationContext) }
     private var controller: OverlayController? = null
+    private var floatingTrigger: FloatingTriggerManager? = null
+    private var overlayVisible = false
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate() {
@@ -60,13 +85,23 @@ class OverlayControllerService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+
+        floatingTrigger = FloatingTriggerManager(applicationContext).apply {
+            onActivateRequested = { showOverlay() }
+            onHideRequested = {
+                commandApiClient.setFloatingBubbleEnabled(false)
+                hide()
+            }
+            if (commandApiClient.floatingBubbleEnabled()) {
+                setSuppressed(PaymentSafeModeMonitor.shared.isActive || overlayVisible)
+                show()
+            }
+        }
+
         serviceScope.launch {
             PaymentSafeModeMonitor.shared.state.collect { state ->
-                getSystemService(NotificationManager::class.java)
-                    .notify(
-                        NOTIFICATION_ID,
-                        buildNotification(state.accessibilityAutoDisabled || state.active),
-                    )
+                floatingTrigger?.setSuppressed(state.active || overlayVisible)
+                updateNotification(state.accessibilityAutoDisabled || state.active)
             }
         }
     }
@@ -75,30 +110,74 @@ class OverlayControllerService : Service() {
         when (intent?.action) {
             ACTION_HIDE -> {
                 controller?.hide()
+                floatingTrigger?.hide()
+                overlayVisible = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             ACTION_DISABLE_ACCESSIBILITY -> {
                 ControlAccessibilityService.disableForPaymentSafety()
-                getSystemService(NotificationManager::class.java)
-                    .notify(NOTIFICATION_ID, buildNotification(paymentSafeMode = true))
+                updateNotification(paymentSafeMode = true)
+                return START_STICKY
+            }
+            ACTION_ENABLE_BUBBLE -> {
+                commandApiClient.setFloatingBubbleEnabled(true)
+                floatingTrigger?.setSuppressed(PaymentSafeModeMonitor.shared.isActive || overlayVisible)
+                floatingTrigger?.show()
+                updateNotification(PaymentSafeModeMonitor.shared.isActive)
+                return START_STICKY
+            }
+            ACTION_DISABLE_BUBBLE -> {
+                commandApiClient.setFloatingBubbleEnabled(false)
+                floatingTrigger?.hide()
+                updateNotification(PaymentSafeModeMonitor.shared.isActive)
                 return START_STICKY
             }
         }
-        controller?.hide()
-        controller = OverlayController(applicationContext).also { it.show() }
+
+        if (commandApiClient.floatingBubbleEnabled()) {
+            floatingTrigger?.setSuppressed(PaymentSafeModeMonitor.shared.isActive || overlayVisible)
+            floatingTrigger?.show()
+        }
+
+        if (intent != null) {
+            showOverlay()
+        }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        floatingTrigger?.hide()
+        floatingTrigger = null
         controller?.destroy()
         controller = null
+        overlayVisible = false
         serviceScope.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun showOverlay() {
+        controller?.hide()
+        val next = OverlayController(applicationContext).apply {
+            onOverlayVisibilityChanged = { visible ->
+                overlayVisible = visible
+                floatingTrigger?.setSuppressed(visible || PaymentSafeModeMonitor.shared.isActive)
+            }
+        }
+        controller = next
+        if (!next.show()) {
+            overlayVisible = false
+            floatingTrigger?.setSuppressed(PaymentSafeModeMonitor.shared.isActive)
+        }
+    }
+
+    private fun updateNotification(paymentSafeMode: Boolean) {
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIFICATION_ID, buildNotification(paymentSafeMode))
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -116,6 +195,14 @@ class OverlayControllerService : Service() {
 
     private fun buildNotification(paymentSafeMode: Boolean): Notification {
         val accessibilityActive = ControlAccessibilityService.isActive()
+        val askIntent = PendingIntent.getForegroundService(
+            this,
+            1709,
+            Intent(this, OverlayControllerService::class.java).apply {
+                action = ACTION_SHOW
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val settingsIntent = PendingIntent.getActivity(
             this,
             1710,
@@ -126,7 +213,7 @@ class OverlayControllerService : Service() {
             paymentSafeMode && !accessibilityActive ->
                 "Payment Safe Mode: overlay paused and Accessibility turned off for UPI/banking safety."
             paymentSafeMode ->
-                "Payment Safe Mode: overlay paused. Tap Disable Accessibility or open Settings if blocked."
+                "Payment Safe Mode: assistant paused while payment app is open."
             accessibilityActive ->
                 "Assistant & Screen Agent active. Disable Accessibility before opening Google Pay/UPI."
             else ->
@@ -137,8 +224,14 @@ class OverlayControllerService : Service() {
             .setContentTitle("Control X is active")
             .setContentText(content)
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
+            .setContentIntent(askIntent)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(
+                android.R.drawable.ic_btn_speak_now,
+                "Ask Control X",
+                askIntent,
+            )
 
         if (accessibilityActive) {
             val disableIntent = PendingIntent.getService(

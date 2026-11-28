@@ -79,6 +79,22 @@ class FastPathRouter(private val context: Context) {
                     android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS,
                     "Notifications",
                 )
+            normalized.matches(Regex("""^(navigate|directions)\s+to\s+(.+)$""")) -> {
+                val place = Regex("""^(?:navigate|directions)\s+to\s+(.+)$""")
+                    .find(normalized)?.groupValues?.get(1).orEmpty()
+                AppActionDispatcher.mapsAction(context, place, navigate = true)
+            }
+            normalized.matches(Regex("""^(?:search|find)\s+(.+?)\s+(?:on|in)\s+([a-z0-9 ._-]+)$""")) -> {
+                val match = Regex("""^(?:search|find)\s+(.+?)\s+(?:on|in)\s+([a-z0-9 ._-]+)$""")
+                    .find(normalized)
+                val query = match?.groupValues?.get(1).orEmpty()
+                val app = match?.groupValues?.get(2).orEmpty()
+                AppActionDispatcher.searchInApp(context, app, query)
+            }
+            normalized.matches(Regex("""^(?:take (?:a )?(?:photo|picture|selfie)|open camera)$""")) ->
+                AppActionDispatcher.openCamera(context, video = false)
+            normalized.matches(Regex("""^(?:record (?:a )?video|open video camera)$""")) ->
+                AppActionDispatcher.openCamera(context, video = true)
             normalized.matches(Regex("""^(search|google|look up|find)\b.*""")) ->
                 searchInternet(normalized)
             normalized.matches(Regex("""^(play)\b.*""")) ->
@@ -106,7 +122,7 @@ class FastPathRouter(private val context: Context) {
             normalized.contains("flashlight") ||
                 normalized.contains("torch") ->
                 setTorch(normalized.contains("on") || normalized.contains("enable"))
-            Regex("""(?i)\b(?:open|launch)\b\s+(.+)""").matches(normalized) ->
+            isSimpleOpenAppCommand(normalized) ->
                 openAppCommand(normalized)
             normalized.contains("wifi") ->
                 launchSettings(Settings.Panel.ACTION_WIFI)
@@ -124,8 +140,6 @@ class FastPathRouter(private val context: Context) {
                 setAlarm(normalized)
             normalized.contains("set timer") || normalized.contains("timer for") ->
                 setTimer(normalized)
-            normalized.matches(Regex("""^(call|dial)\b.*""")) ->
-                dialCommand(normalized)
             normalized.contains("battery") ->
                 batteryStatus()
             normalized.contains("volume") ->
@@ -209,17 +223,37 @@ class FastPathRouter(private val context: Context) {
         }
     }
 
+    private fun isSimpleOpenAppCommand(normalized: String): Boolean {
+        val query = Regex("""^(?:open|launch)\s+(.+)$""")
+            .find(normalized)
+            ?.groupValues
+            ?.get(1)
+            ?.trim()
+            ?: return false
+        return !isCompoundTaskClause(query)
+    }
+
     private fun openAppCommand(normalized: String): FastPathResult {
         val query = Regex("""(?i)^(?:open|launch)\s+(.+)$""")
             .find(normalized)
             ?.groupValues
             ?.get(1)
+            ?.trim()
             ?: return FastPathResult.Unhandled
         return if (launchApp(query)) {
             FastPathResult.Executed("Opened $query.", 0)
         } else {
-            FastPathResult.Error("No launchable app matched '$query'.")
+            FastPathResult.Unhandled
         }
+    }
+
+    companion object {
+        private val COMPOUND_CONNECTOR_REGEX = Regex(
+            """(?i)\b(?:and|then|to|on|in|for|search|find|message|send|play|call|scroll|tap|click|post|comment|order|book|check|turn)\b|,""",
+        )
+
+        fun isCompoundTaskClause(trailingText: String): Boolean =
+            COMPOUND_CONNECTOR_REGEX.containsMatchIn(trailingText.trim())
     }
 
     fun searchWebQuery(query: String): FastPathResult {

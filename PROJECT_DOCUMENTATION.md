@@ -40,6 +40,10 @@ app/
       ReActEngine.kt
       SnapshotActionValidator.kt
       UniversalTaskRunner.kt
+    assistant/
+      AssistTriggerActivity.kt
+      ControlXSessionService.kt
+      ControlXVoiceService.kt
     domain/
       ActionModels.kt
       ActionRecord.kt
@@ -50,6 +54,7 @@ app/
       VoiceInputManager.kt
     overlay/
       AssistantOverlayManager.kt
+      FloatingTriggerManager.kt
       OverlayController.kt
       OverlayControllerService.kt
     platform/
@@ -60,6 +65,7 @@ app/
       PermissionSnapshot.kt
       PackageChangeReceiver.kt
     router/
+      AppActionDispatcher.kt
       AppLauncher.kt
       ContactCaller.kt
       DynamicActionExecutor.kt
@@ -114,6 +120,8 @@ server/
 - Route explicit `type`/`write` commands into the focused editable field only when that node and foreground app pass sensitive-action checks.
 - Route media search through Android's `INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH`, explicit Spotify search deep links when requested, and YouTube app/browser fallback.
 - Route `search`, `google`, `look up`, and `find` commands to a Google browser search URL.
+- Route in-app voice actions via `AppActionDispatcher` (`navigate/directions to <place>`, `search/find <query> on/in <app>`, `take photo`, `record video`) without Accessibility.
+- Guard `open`/`launch` fast-path matching with `FastPathRouter.isCompoundTaskClause` so compound `"open <app> and <task>"` commands fall through to dynamic routing or `UniversalTaskRunner.splitAppAndGoal`.
 - Return explicit errors for Back and Recents when no accessibility service is available.
 
 ### Android limitations
@@ -170,7 +178,7 @@ The parser maps ephemeral IDs back to current `AccessibilityNodeInfo` instances.
 All AI inference is proxied through the backend server (`server/`), keeping `NVIDIA_API_KEY` hidden in server environment variables rather than inside the APK or on Android devices.
 
 - Android automatically registers a random `deviceId` with `POST /api/v1/devices/register` and receives a per-device bearer token stored in `EncryptedSharedPreferences` (`CommandApiClient`).
-- Unmatched natural-language commands call `POST /api/v1/assistant/interpret`, allowing `NvidiaNimProxy` on the backend to select a typed device intent (`OPEN_APP`, `DIAL_CONTACT`, `DRAFT_SMS`, `PLAY_MEDIA`, `WEB_SEARCH`, `SET_ALARM`, `SET_TIMER`, `TOGGLE_TORCH`, `SET_VOLUME`, `OPEN_SETTINGS`, `LOCK_SCREEN`, `ANSWER_TEXT`, or `NEEDS_SCREEN_AGENT`) executed locally by `DynamicActionExecutor` without Accessibility.
+- Unmatched natural-language commands call `POST /api/v1/assistant/interpret`, allowing `NvidiaNimProxy` on the backend to select a typed device intent (`OPEN_APP`, `DIAL_CONTACT`, `DRAFT_SMS`, `WHATSAPP_MESSAGE`, `DRAFT_EMAIL`, `IN_APP_SEARCH`, `MAPS_ACTION`, `OPEN_CAMERA`, `CREATE_CALENDAR_EVENT`, `PLAY_MEDIA`, `WEB_SEARCH`, `SET_ALARM`, `SET_TIMER`, `TOGGLE_TORCH`, `SET_VOLUME`, `OPEN_SETTINGS`, `LOCK_SCREEN`, `ANSWER_TEXT`, or `NEEDS_SCREEN_AGENT`) executed locally by `DynamicActionExecutor` and `AppActionDispatcher` without Accessibility. When `NEEDS_SCREEN_AGENT` carries an app `launchTarget` or compound `"open <app> and <task>"` goal, `UniversalTaskRunner.splitAppAndGoal` launches the target app first and then runs the bounded UI agent if optional Screen Automation is active.
 - Multi-step UI automation (`ReActEngine` via `AgentBrainPort`) calls `POST /api/v1/agent/plan`, where `NvidiaNimProxy` sends a strict JSON request (`chat_template_kwargs.enable_thinking = false`) to:
 
 `https://integrate.api.nvidia.com/v1/chat/completions` (default model: `nvidia/nemotron-3-ultra-550b-a55b`)
@@ -273,16 +281,18 @@ The overlay implementation is permission-gated and uses `TYPE_APPLICATION_OVERLA
 
 ## 12. Assistant Activation and Invocation
 
-The app implements `VoiceInteractionService`, `VoiceInteractionSessionService`, and
-`ACTION_ASSIST` for supported Android/OEM activation paths. The dashboard exposes
-the device voice-input/default-assistant settings route and explains that menu names
-vary.
+Control X supports multiple activation entry points that work with Accessibility **OFF**:
+
+- **Digital Assistant & `ACTION_ASSIST`:** `ControlXVoiceService`, `ControlXSessionService`, and `AssistTriggerActivity` handle system Digital Assistant / power-hold / corner-swipe triggers. Once Microphone and Overlay permissions are granted, `ControlXSessionService` and `AssistTriggerActivity` call `OverlayControllerService.start(...)` directly over the active app (falling back to `MainActivity` only when setup permissions are missing).
+- **Floating Quick-Trigger Bubble:** `FloatingTriggerManager` displays a compact draggable `CX` pill (`TYPE_APPLICATION_OVERLAY`, zero Accessibility) toggled by **BUBBLE: ON / OFF** in `MainActivity` or via `OverlayControllerService` (`ACTION_ENABLE_BUBBLE` / `ACTION_DISABLE_BUBBLE`). Single-tap launches voice capture, long-press hides the bubble, and `OverlayControllerService` automatically suppresses the bubble while `PaymentSafeMode` is active or while the full overlay panel is open.
+- **Ongoing Notification & Quick Settings:** `OverlayControllerService` adds an **Ask Control X** action and tap target (`PendingIntent.getForegroundService` → `ACTION_SHOW`), alongside `ControlQuickSettingsTile`.
+- **Launcher Shortcut:** `app/src/main/res/xml/shortcuts.xml` registers an `Ask Control X` static shortcut targeting `AssistTriggerActivity`.
 
 The power button cannot be intercepted by a normal third-party app. The supported
 power-hold flow is indirect: the user selects Control X in Android/OEM digital
 assistant Settings, and the OEM routes its power-hold gesture to the default assistant.
-Availability depends on Android and OEM policy, lock-screen state, Accessibility,
-overlay permission, and process retention.
+Availability depends on Android and OEM policy, lock-screen state, overlay permission,
+and process retention.
 
 ## 13. Current Hardening
 
@@ -388,6 +398,14 @@ Future development should proceed in this order:
 11. Biometric approval UI for future explicitly allowed high-risk operations.
 
 ## 15. Change Log
+
+### 2026-11-28 — In-App Task Execution & Multi-Trigger Activation
+
+- Added zero-Accessibility in-app execution via `AppActionDispatcher`, expanding `NvidiaNimProxy`, `BackendAiClient`, `DynamicActionExecutor`, and `FastPathRouter` with `WHATSAPP_MESSAGE`, `IN_APP_SEARCH`, `MAPS_ACTION`, `DRAFT_EMAIL`, `OPEN_CAMERA`, and `CREATE_CALENDAR_EVENT` plus offline Fast-Path routes (`navigate/directions to ...`, `search/find <query> on/in <app>`, camera photo/video).
+- Fixed compound app-task handling (`FastPathRouter.isCompoundTaskClause` and `UniversalTaskRunner.splitAppAndGoal`) and forwarded `launchTarget` on `NEEDS_SCREEN_AGENT` so `"open <app> and <task>"` chains app launch into Screen Agent automation when optional Accessibility is enabled.
+- Updated `ControlXSessionService` and `AssistTriggerActivity` to start `OverlayControllerService.start(...)` directly over the active app once Microphone and Overlay permissions are granted (falling back to `MainActivity` only for setup).
+- Added optional floating quick-trigger `"CX"` bubble (`FloatingTriggerManager`, `TYPE_APPLICATION_OVERLAY`, zero Accessibility) toggled via `"BUBBLE: ON / OFF"` in `MainActivity`, suppressed automatically during `PaymentSafeMode` and active overlay sessions; added ongoing notification **"Ask Control X"** action (`OverlayControllerService`) and static Android launcher shortcut (`shortcuts.xml`).
+- Added backend and Android unit tests (`ServerProxyTest.kt`, `AgentContractTest.kt`).
 
 ### 2026-11-27 — Backend AI Key Hiding, Dynamic Intents & Payment-Safe Accessibility
 

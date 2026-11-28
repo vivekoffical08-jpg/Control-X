@@ -1,5 +1,6 @@
 package com.controlx.router
 
+import android.content.Context
 import android.media.AudioManager
 import com.controlx.agent.DynamicIntentPlan
 import com.controlx.agent.DynamicIntentType
@@ -15,11 +16,16 @@ sealed interface DynamicExecutionResult {
         val keepVisibleLonger: Boolean = false,
     ) : DynamicExecutionResult
 
-    data class NeedsScreenAgent(val goal: String) : DynamicExecutionResult
+    data class NeedsScreenAgent(
+        val goal: String,
+        val launchTarget: String? = null,
+    ) : DynamicExecutionResult
+
     data class Error(val reason: String) : DynamicExecutionResult
 }
 
 class DynamicActionExecutor(
+    private val context: Context,
     private val router: FastPathRouter,
     private val sensitiveActionPolicy: SensitiveActionPolicy = SensitiveActionPolicy(),
 ) {
@@ -35,6 +41,8 @@ class DynamicActionExecutor(
             originalCommand,
             plan.contactQuery,
             plan.messageText,
+            plan.emailSubject,
+            plan.calendarTitle,
             plan.searchQuery,
             plan.agentGoal,
         ).joinToString(" ")
@@ -60,6 +68,54 @@ class DynamicActionExecutor(
                 toDynamicResult(router.dialQuery(plan.contactQuery.orEmpty()))
             DynamicIntentType.DRAFT_SMS ->
                 toDynamicResult(router.draftSms(plan.contactQuery.orEmpty(), plan.messageText))
+            DynamicIntentType.WHATSAPP_MESSAGE ->
+                toDynamicResult(
+                    AppActionDispatcher.whatsappMessage(
+                        context = context,
+                        recipientQuery = plan.contactQuery,
+                        messageText = plan.messageText,
+                    ),
+                )
+            DynamicIntentType.DRAFT_EMAIL ->
+                toDynamicResult(
+                    AppActionDispatcher.draftEmail(
+                        context = context,
+                        recipientEmail = plan.contactQuery,
+                        subject = plan.emailSubject,
+                        body = plan.messageText,
+                    ),
+                )
+            DynamicIntentType.IN_APP_SEARCH ->
+                toDynamicResult(
+                    AppActionDispatcher.searchInApp(
+                        context = context,
+                        appQuery = plan.appPackage ?: plan.appName.orEmpty(),
+                        searchQuery = plan.searchQuery.orEmpty(),
+                    ),
+                )
+            DynamicIntentType.MAPS_ACTION ->
+                toDynamicResult(
+                    AppActionDispatcher.mapsAction(
+                        context = context,
+                        query = plan.searchQuery.orEmpty(),
+                        navigate = plan.navigate == true,
+                    ),
+                )
+            DynamicIntentType.OPEN_CAMERA ->
+                toDynamicResult(
+                    AppActionDispatcher.openCamera(
+                        context = context,
+                        video = plan.cameraVideo == true,
+                    ),
+                )
+            DynamicIntentType.CREATE_CALENDAR_EVENT ->
+                toDynamicResult(
+                    AppActionDispatcher.createCalendarEvent(
+                        context = context,
+                        title = plan.calendarTitle ?: plan.thought,
+                        description = plan.messageText,
+                    ),
+                )
             DynamicIntentType.PLAY_MEDIA -> {
                 val base = plan.mediaQuery?.trim().orEmpty()
                 if (base.isEmpty()) {
@@ -118,7 +174,9 @@ class DynamicActionExecutor(
             }
             DynamicIntentType.NEEDS_SCREEN_AGENT ->
                 DynamicExecutionResult.NeedsScreenAgent(
-                    plan.agentGoal?.trim()?.takeIf { it.isNotEmpty() } ?: originalCommand,
+                    goal = plan.agentGoal?.trim()?.takeIf { it.isNotEmpty() } ?: originalCommand,
+                    launchTarget = plan.appPackage?.takeIf { it.isNotBlank() }
+                        ?: plan.appName?.takeIf { it.isNotBlank() },
                 )
             DynamicIntentType.BLOCKED ->
                 DynamicExecutionResult.Error(

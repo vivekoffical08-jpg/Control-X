@@ -256,4 +256,59 @@ class AgentContractTest {
         val client = BackendAiClient()
         client.parseIntentJson("""{"intent":"SHELL_EXEC","thought":"invalid"}""")
     }
+
+    @Test
+    fun detectsCompoundTaskClausesForAppCommands() {
+        assertTrue(com.controlx.router.FastPathRouter.isCompoundTaskClause("WhatsApp and send hi to Rahul"))
+        assertTrue(com.controlx.router.FastPathRouter.isCompoundTaskClause("Spotify then play lo-fi beats"))
+        assertTrue(com.controlx.router.FastPathRouter.isCompoundTaskClause("YouTube, search Kotlin tutorial"))
+        org.junit.Assert.assertFalse(com.controlx.router.FastPathRouter.isCompoundTaskClause("WhatsApp"))
+        org.junit.Assert.assertFalse(com.controlx.router.FastPathRouter.isCompoundTaskClause("Settings"))
+    }
+
+    @Test
+    fun splitsCompoundOpenAppCommandsIntoAppAndGoal() {
+        assertEquals(
+            "WhatsApp" to "send hi to Rahul",
+            UniversalTaskRunner.splitAppAndGoal("open WhatsApp and send hi to Rahul"),
+        )
+        assertEquals(
+            "Spotify" to "search lo-fi beats",
+            UniversalTaskRunner.splitAppAndGoal("launch Spotify then search lo-fi beats"),
+        )
+        assertEquals(
+            "YouTube" to "open YouTube",
+            UniversalTaskRunner.splitAppAndGoal("open YouTube"),
+        )
+        assertEquals(
+            null to "scroll down on settings",
+            UniversalTaskRunner.splitAppAndGoal("scroll down on settings"),
+        )
+    }
+
+    @Test
+    fun backendClientParsesInAppDynamicIntentPayloads() {
+        val client = BackendAiClient()
+
+        val whatsapp = client.parseIntentJson(
+            """{"intent":"WHATSAPP_MESSAGE","thought":"Message contact on WhatsApp","contactQuery":"Rahul","messageText":"On my way"}""",
+        )
+        assertEquals(DynamicIntentType.WHATSAPP_MESSAGE, whatsapp.intent)
+        assertEquals("Rahul", whatsapp.contactQuery)
+        assertEquals("On my way", whatsapp.messageText)
+
+        val search = client.parseIntentJson(
+            """{"intent":"IN_APP_SEARCH","thought":"Search in Spotify","appName":"Spotify","searchQuery":"lo-fi beats"}""",
+        )
+        assertEquals(DynamicIntentType.IN_APP_SEARCH, search.intent)
+        assertEquals("Spotify", search.appName)
+        assertEquals("lo-fi beats", search.searchQuery)
+
+        val maps = client.parseIntentJson(
+            """{"intent":"MAPS_ACTION","thought":"Start navigation","searchQuery":"India Gate","navigate":true}""",
+        )
+        assertEquals(DynamicIntentType.MAPS_ACTION, maps.intent)
+        assertEquals("India Gate", maps.searchQuery)
+        assertTrue(maps.navigate == true)
+    }
 }

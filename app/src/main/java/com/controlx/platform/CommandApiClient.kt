@@ -140,6 +140,14 @@ class CommandApiClient(context: Context) {
             .putBoolean(KEY_AUTO_DISABLE_PAYMENT_ACCESSIBILITY, enabled)
             .commit()
 
+    fun floatingBubbleEnabled(): Boolean =
+        preferences.getBoolean(KEY_FLOATING_BUBBLE, false)
+
+    fun setFloatingBubbleEnabled(enabled: Boolean): Boolean =
+        preferences.edit()
+            .putBoolean(KEY_FLOATING_BUBBLE, enabled)
+            .commit()
+
     fun ensureDeviceToken(forceReset: Boolean = false): String? = synchronized(authLock) {
         val baseUrl = getEffectiveBaseUrl()
         if (baseUrl.isBlank()) return@synchronized null
@@ -375,5 +383,6 @@ class CommandApiClient(context: Context) {
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_INVENTORY_UPLOAD = "inventory_upload"
         private const val KEY_AUTO_DISABLE_PAYMENT_ACCESSIBILITY = "auto_disable_payment_accessibility"
+        private const val KEY_FLOATING_BUBBLE = "floating_bubble_enabled"
     }
 }

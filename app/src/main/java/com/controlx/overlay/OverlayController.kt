@@ -35,11 +35,13 @@ class OverlayController(
     context: Context,
     private val executionGuard: ExecutionGuard = ExecutionGuard.shared,
 ) {
+    var onOverlayVisibilityChanged: ((Boolean) -> Unit)? = null
+
     private val appContext = context.applicationContext
     private val manager = AssistantOverlayManager(appContext, executionGuard)
     private val voiceInput by lazy { VoiceInputManager(appContext) }
     private val router = FastPathRouter(appContext)
-    private val dynamicExecutor = DynamicActionExecutor(router)
+    private val dynamicExecutor = DynamicActionExecutor(appContext, router)
     private val commandApiClient by lazy { CommandApiClient(appContext) }
     private val backendAiClient by lazy { BackendAiClient(commandApiClient) }
     private val taskRunner by lazy { UniversalTaskRunner(appContext, commandApiClient) }
@@ -78,6 +80,7 @@ class OverlayController(
         ) return false
         executionGuard.reset()
         if (!manager.show()) return false
+        onOverlayVisibilityChanged?.invoke(true)
         startListening()
         return true
     }
@@ -95,6 +98,7 @@ class OverlayController(
         listeningForCompletion = false
         voiceInput.destroy()
         manager.hide()
+        onOverlayVisibilityChanged?.invoke(false)
         scope.cancel()
     }
 
@@ -235,7 +239,7 @@ class OverlayController(
                 dismiss()
             }
             is DynamicExecutionResult.NeedsScreenAgent -> {
-                val agentResult = taskRunner.run(outcome.goal) { action ->
+                val agentResult = taskRunner.run(outcome.goal, outcome.launchTarget) { action ->
                     requestAgentActionApproval(action)
                 }
                 val totalElapsed = (System.nanoTime() - startedNs) / 1_000_000
@@ -314,6 +318,7 @@ class OverlayController(
         listeningForCompletion = false
         voiceInput.stopListening()
         manager.hide()
+        onOverlayVisibilityChanged?.invoke(false)
         executionGuard.reset()
     }
 
@@ -321,6 +326,7 @@ class OverlayController(
         listeningForCompletion = false
         voiceInput.stopListening()
         manager.hide()
+        onOverlayVisibilityChanged?.invoke(false)
     }
 
     private fun pauseForPayment() {

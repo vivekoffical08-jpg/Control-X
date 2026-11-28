@@ -19,6 +19,7 @@ class UniversalTaskRunner(
 
     suspend fun run(
         goal: String,
+        launchTarget: String? = null,
         actionApprover: suspend (AgentAction) -> Boolean = { false },
     ): TaskResult = withContext(Dispatchers.Default) {
         val service = activeService() ?: return@withContext TaskResult.Error(
@@ -31,23 +32,25 @@ class UniversalTaskRunner(
             )
         }
 
-        val openMatch = Regex("""(?i)^(?:open|launch)\s+(.+)$""").find(goal.trim())
-        if (openMatch != null) {
-            val appName = openMatch.groupValues[1].trim()
-            val launched = router.launchApp(appName)
+        val parsed = splitAppAndGoal(goal)
+        val appToLaunch = launchTarget?.takeIf { it.isNotBlank() } ?: parsed.first
+        val resolvedGoal = parsed.second
+
+        if (!appToLaunch.isNullOrBlank()) {
+            val launched = router.launchApp(appToLaunch)
             if (!launched) {
                 return@withContext TaskResult.Error(
-                    "No installed app matched '$appName'.",
+                    "No installed app matched '$appToLaunch'.",
                 )
             }
-            delay(700)
+            delay(1000)
         }
 
         val reAct = ReActEngine(backendAiClient)
         val executor = AgentNodeExecutor(service)
 
         val result = reAct.runGoal(
-            goal = goal,
+            goal = resolvedGoal,
             screenProvider = ReActEngine.ScreenProvider {
                 service.captureScreenSnapshot()
             },
@@ -75,5 +78,28 @@ class UniversalTaskRunner(
     sealed interface TaskResult {
         data class Executed(val message: String) : TaskResult
         data class Error(val reason: String) : TaskResult
+    }
+
+    companion object {
+        private val COMPOUND_OPEN_REGEX =
+            Regex("""(?i)^(?:open|launch)\s+(.+?)\s+(?:and|then|,)\s+(.+)$""")
+        private val SIMPLE_OPEN_REGEX =
+            Regex("""(?i)^(?:open|launch)\s+(.+)$""")
+
+        internal fun splitAppAndGoal(goal: String): Pair<String?, String> {
+            val trimmed = goal.trim()
+            val compound = COMPOUND_OPEN_REGEX.find(trimmed)
+            if (compound != null) {
+                return compound.groupValues[1].trim() to compound.groupValues[2].trim()
+            }
+            val simple = SIMPLE_OPEN_REGEX.find(trimmed)
+            if (simple != null) {
+                val app = simple.groupValues[1].trim()
+                if (!FastPathRouter.isCompoundTaskClause(app)) {
+                    return app to trimmed
+                }
+            }
+            return null to trimmed
+        }
     }
 }

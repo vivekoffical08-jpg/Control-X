@@ -156,6 +156,18 @@ class MainActivity : ComponentActivity() {
                             },
                             onScanInventory = { commandApiClient.scanInstalledApps().size },
                             onSyncInventory = { commandApiClient.syncAppInventory() },
+                            onLoadFloatingBubble = {
+                                commandApiClient.floatingBubbleEnabled()
+                            },
+                            onToggleFloatingBubble = { enabled ->
+                                commandApiClient.setFloatingBubbleEnabled(enabled)
+                                if (enabled) {
+                                    OverlayControllerService.enableBubble(this)
+                                } else {
+                                    OverlayControllerService.disableBubble(this)
+                                }
+                                enabled
+                            },
                         )
                     }
                 }
@@ -224,6 +236,8 @@ private fun PermissionDashboard(
     onSetInventoryUpload: (Boolean) -> Boolean,
     onScanInventory: () -> Int,
     onSyncInventory: () -> Boolean,
+    onLoadFloatingBubble: () -> Boolean,
+    onToggleFloatingBubble: (Boolean) -> Boolean,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -235,11 +249,13 @@ private fun PermissionDashboard(
     var accessibilityActionMessage by mutableStateOf<String?>(null)
     var inventoryUploadEnabled by mutableStateOf(false)
     var inventoryStatus by mutableStateOf("Local scan not run")
+    var floatingBubbleEnabled by mutableStateOf(false)
 
     LaunchedEffect(Unit) {
         onPermissionsChanged()
         serverUrl = withContext(Dispatchers.IO) { onLoadServerUrl() }
         autoDisablePayment = withContext(Dispatchers.IO) { onLoadAutoDisablePayment() }
+        floatingBubbleEnabled = withContext(Dispatchers.IO) { onLoadFloatingBubble() }
         val alreadyRegistered = withContext(Dispatchers.IO) { onHasDeviceSession() }
         backendStatus = if (serverUrl.isBlank()) {
             "Server URL needed"
@@ -395,7 +411,7 @@ private fun PermissionDashboard(
                 context.startActivity(intent)
             }
             Text(
-                "Power-hold activation depends on your OEM Default Assistant menu.",
+                "Power-hold activation depends on your OEM Default Assistant menu. You can also toggle the floating CX bubble below, tap Ask Control X in the notification shade, or pin the app shortcut.",
                 color = Color(0xFF94A3B8),
             )
         }
@@ -570,14 +586,33 @@ private fun PermissionDashboard(
             ) { Text("SYNC NOW") }
         }
 
-        Button(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp),
-            enabled = enabledForOverlay,
-            onClick = onLaunchOverlay,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("LAUNCH CONTROL X")
+            Button(
+                modifier = Modifier.weight(1.35f),
+                enabled = enabledForOverlay,
+                onClick = onLaunchOverlay,
+            ) {
+                Text("LAUNCH CONTROL X")
+            }
+            Button(
+                modifier = Modifier.weight(1f),
+                enabled = enabledForOverlay,
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        val updated = onToggleFloatingBubble(!floatingBubbleEnabled)
+                        withContext(Dispatchers.Main) {
+                            floatingBubbleEnabled = updated
+                        }
+                    }
+                },
+            ) {
+                Text(if (floatingBubbleEnabled) "BUBBLE: ON" else "BUBBLE: OFF")
+            }
         }
 
         ControlCard(title = "Fast-Path test", subtitle = "Try an offline command without voice") {

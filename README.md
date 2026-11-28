@@ -19,23 +19,23 @@ If Android shows **“App blocked to protect your device”**, read [INSTALL_AND
 
 ## Activate Control X
 
-The app provides a **Quick Settings** tile labeled `Control X`. After installation:
+Control X supports multiple activation paths without requiring Accessibility:
 
-1. Open the notification shade.
-2. Edit Quick Settings.
-3. Drag **Control X** into the active tiles.
-4. Tap the tile to open the overlay and start listening.
-
-Control X also registers Android voice-assistant entry points:
-
-1. Open **Control X**.
-2. Enable **Microphone**, **Overlay**, and **Accessibility**.
-3. Open **Settings > Apps > Default apps > Digital assistant** or the OEM equivalent.
-   Other menu names include **Assistant app**, **Default assistant**, **Assist & voice input**, or **Voice input**.
-4. Select **Control X** and keep any **Use text from screen** or **Screen context** option at the device default unless you explicitly need it.
-5. Android or the OEM can then route `ACTION_ASSIST` and supported voice-hold gestures to Control X.
+1. **Quick Settings tile (`Control X`):** pull down the notification shade, edit Quick Settings, drag **Control X** into your active tiles, and tap it anytime to open the overlay over the current app.
+2. **Ongoing Notification (`Ask Control X`):** while Control X is active, tap the notification or its **Ask Control X** action button from any screen to start listening immediately.
+3. **Floating Quick-Trigger Bubble (`CX`):** tap **BUBBLE: ON** in the dashboard to keep a draggable `CX` pill on your screen edge (single-tap launches voice over any app; long-press hides it). It uses only `SYSTEM_ALERT_WINDOW` and hides automatically during Google Pay / banking Payment Safe Mode.
+4. **Launcher Shortcut (`Ask Control X`):** long-press the Control X app icon on your home screen or pin the **Ask Control X** shortcut for 1-tap voice invocation.
+5. **Default Digital Assistant (`ACTION_ASSIST` / OEM power-hold):**
+   - Open **Control X** and grant **Microphone** and **Overlay** (Accessibility is optional).
+   - Open **Settings > Apps > Default apps > Digital assistant** (or OEM equivalent: **Assistant app**, **Default assistant**, **Assist & voice input**).
+   - Select **Control X**; once Microphone and Overlay are granted, power-hold or corner-swipe launches the overlay directly over whatever app is open.
 
 A normal third-party app cannot directly intercept a 3–4 second power-button press. It works only when Android/OEM Settings routes the power-hold gesture to the selected digital assistant. Menu names, power-hold behavior, lock-screen behavior, and availability vary by phone; there is no guarantee on every Android OEM.
+
+### In-App Voice Actions & Automation
+
+- **Zero-Accessibility in-app actions:** launch any installed app, search inside apps (`"search lo-fi beats on Spotify"`, `"find Kotlin compose on YouTube"`), message on WhatsApp, draft emails, start Maps search or navigation (`"navigate to India Gate"`), launch camera photo/video mode, create calendar events, dial contacts, draft SMS, set alarms/timers, and toggle flashlight/volume.
+- **Chained UI automation (`"open <app> and <task>"`):** when optional Screen Automation is turned ON, compound commands open the target app and run bounded backend-planned screen steps with per-action confirmation.
 
 **Battery optimization:** use **Battery exemption > SET UP** for the direct Android battery-exemption prompt. If the OEM blocks that prompt, the app opens the OEM battery optimization list as a fallback.
 
